@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BUILT_IN_VIEWS, viewJql } from "../jira/jql.ts";
+import { allViews, viewJql } from "../jira/jql.ts";
 import type { ViewId } from "../jira/model.ts";
 import { send, useTab } from "./bridge.ts";
 import { updatedText } from "./format.ts";
@@ -21,7 +21,7 @@ export function TopBar() {
   const now = useNow();
   const [typed, setTyped] = useState(tab.typed);
   useEffect(() => setTyped(tab.typed), [tab.typed, tab.view]);
-  const views: { id: ViewId; name: string; hint: string }[] = [...BUILT_IN_VIEWS, ...state.savedViews.map(({ name, jql }) => ({ id: `saved:${name}` as const, name, hint: jql }))];
+  const views: { id: ViewId; name: string; hint: string }[] = allViews(connection, state.savedViews);
   const list = state.lists[tab.jql];
   const loading = state.loading.includes(`list:${tab.jql}`);
   const savedName = tab.view.startsWith("saved:") ? tab.view.slice("saved:".length) : null;
@@ -29,7 +29,7 @@ export function TopBar() {
     <header className="top-bar">
       <div className="views" role="tablist" aria-label="Views">
         {views.map(({ id, name, hint }, index) => {
-          const count = state.counts[viewJql(id, connection.project, state.prefs.sprint, state.savedViews)];
+          const count = state.counts[viewJql(id, connection, state.prefs.sprint, state.savedViews)];
           return (
             <button key={id} type="button" role="tab" aria-selected={tab.view === id && !tab.typed} className={tab.view === id && !tab.typed ? "on" : ""} data-hint={index < 9 ? `${hint} (${index + 1})` : hint} onClick={() => tab.setView(id)}>
               {name}
@@ -81,6 +81,9 @@ export function TopBar() {
           <div className="menu">
             <button type="button" onClick={() => (close(), tab.refresh())}>
               Read again <small>r</small>
+            </button>
+            <button type="button" onClick={() => (close(), tab.showSheet({ kind: "sources" }))}>
+              Sources…
             </button>
             <button type="button" onClick={() => (close(), window.mirador.openLink(`${connection.site}/browse/${connection.project}`))}>
               Open {connection.project} in Jira

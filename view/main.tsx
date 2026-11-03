@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BUILT_IN_VIEWS, searchJql, viewJql } from "../jira/jql.ts";
+import { allViews, searchJql, viewJql, viewShown } from "../jira/jql.ts";
 import { DEFAULT_PREFS, type Issue, type Person, type Prefs, type TabState, type Undo, type ViewId, type WriteAction, type WriteReply } from "../jira/model.ts";
 import { failureText, keyWithSummary, send, TabContext, type Sheet, type Tab } from "./bridge.ts";
 import { SprintView } from "./board.tsx";
@@ -90,7 +90,7 @@ function ToastView({ toast, onUndo }: { toast: Toast | null; onUndo(undo: Undo):
 function useKeys(tab: Tab | null, sheetOpen: boolean) {
   useEffect(() => {
     if (!tab) return;
-    const views: ViewId[] = [...BUILT_IN_VIEWS.map(({ id }) => id), ...tab.state.savedViews.map(({ name }) => `saved:${name}` as const)];
+    const views: ViewId[] = allViews(tab.connection, tab.state.savedViews).map(({ id }) => id);
     const pressed = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       if (sheetOpen || event.metaKey || event.ctrlKey || event.altKey || target.closest("input, textarea, select, [role=dialog], .popover")) return;
@@ -148,10 +148,11 @@ function App() {
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const connection = state?.connection ?? null;
   const prefs = prefsHere ?? state?.prefs ?? DEFAULT_PREFS;
-  const jql = connection && state ? (prefs.search.trim() ? searchJql(prefs.search, connection.project) : viewJql(prefs.view, connection.project, prefs.sprint, state.savedViews)) : null;
+  const view = connection && state ? viewShown(prefs.view, connection, state.savedViews) : prefs.view;
+  const jql = connection && state ? (prefs.search.trim() ? searchJql(prefs.search, connection) : viewJql(view, connection, prefs.sprint, state.savedViews)) : null;
   useReading(jql);
   useOpening(selectedKey);
-  useSprintsWhenShown(connection ? prefs.view : null);
+  useSprintsWhenShown(connection ? view : null);
   const selected = state && jql && selectedKey ? issueIn(state, jql, selectedKey) : null;
 
   const showToast = useCallback((text: string, options: { failed?: boolean; undo?: Undo | null } = {}) => {
@@ -170,7 +171,7 @@ function App() {
     return {
       state,
       connection,
-      view: prefs.view,
+      view,
       setView: (view) => setPrefs({ ...prefs, view, search: "" }),
       jql,
       typed: prefs.search,
@@ -193,7 +194,7 @@ function App() {
       narrow,
       isMe: (person: Person | null) => !!person && !!me && (person.accountId === me.accountId || (!!me.email && person.email?.toLowerCase() === me.email.toLowerCase())),
     };
-  }, [state, connection, jql, prefs, selectedKey, selected, narrow]);
+  }, [state, connection, jql, view, prefs, selectedKey, selected, narrow]);
 
   useKeys(tab, sheet !== null);
 
@@ -219,8 +220,8 @@ function App() {
       {tab && !blocking && (
         <TabContext.Provider value={tab}>
           <TopBar />
-          <main className={`body view-${prefs.view === "sprint" ? "sprint" : "list"} ${selectedKey ? "has-detail" : ""} ${besideList ? "beside" : "over"}`}>
-            <div className="content">{prefs.view === "sprint" ? <SprintView /> : <ListView />}</div>
+          <main className={`body view-${view === "sprint" ? "sprint" : "list"} ${selectedKey ? "has-detail" : ""} ${besideList ? "beside" : "over"}`}>
+            <div className="content">{view === "sprint" ? <SprintView /> : <ListView />}</div>
             {selectedKey && (
               <aside className="detail-pane">
                 <Detail key={selectedKey} issueKey={selectedKey} />

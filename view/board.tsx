@@ -123,7 +123,7 @@ export function SprintView() {
   const tab = useTab();
   const list = tab.state.lists[tab.jql];
   const board = tab.state.prefs.layout === "board";
-  const seen = new Map<string, Status>([...tab.state.statuses, ...(list?.issues ?? []).map(({ status }) => status)].map((status) => [status.name, status]));
+  const seen = new Map<string, Status>([...(tab.state.statuses[tab.connection.project] ?? []), ...(list?.issues ?? []).map(({ status }) => status)].map((status) => [status.name, status]));
   const statuses = [...seen.values()].sort((a, b) => CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category]);
   return (
     <div className="sprint">

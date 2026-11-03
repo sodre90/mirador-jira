@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { shellText, writePlan } from "../jira/acli.ts";
-import type { Detail, Issue, Person, TabAction, WriteAction, WriteReply } from "../jira/model.ts";
+import { componentFilter, projectOf, sourceJql } from "../jira/jql.ts";
+import type { Detail, Issue, Person, ProjectLookup, TabAction, WriteAction, WriteReply } from "../jira/model.ts";
 import { failureText, keyWithSummary, send, useTab, type Sheet } from "./bridge.ts";
 import { Avatar, Spinner } from "./icons.tsx";
 import { MarkdownText } from "./markdown.tsx";
@@ -20,7 +21,7 @@ export function useCommand(action: WriteAction | null) {
 }
 
 /** A sheet over the tab with a title, its fields, the acli command it will run, and its buttons; Escape cancels. */
-function SheetFrame({ title, children, command, footer }: { title: string; children?: ReactNode; command: string | null; footer: ReactNode }) {
+function SheetFrame({ title, children, command, jql, footer }: { title: string; children?: ReactNode; command: string | null; jql?: string | null; footer: ReactNode }) {
   const tab = useTab();
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
@@ -37,6 +38,11 @@ function SheetFrame({ title, children, command, footer }: { title: string; child
         {command && (
           <pre className="command" data-hint="What it runs, with your acli">
             {command}
+          </pre>
+        )}
+        {jql && (
+          <pre className="jql" data-hint="What the source's view searches">
+            {jql}
           </pre>
         )}
         <div className="sheet-buttons">{footer}</div>
@@ -157,10 +163,21 @@ function AssignSheet({ issue, to }: { issue: Issue; to: Person | null }) {
   );
 }
 
+/** The project a new issue goes in at first: its parent's, the source the view shows, or the workspace's own. */
+function firstProject(tab: ReturnType<typeof useTab>, parent: Issue | null) {
+  if (parent) return projectOf(parent.key);
+  return tab.connection.sources.find(({ name }) => tab.view === `source:${name}`)?.project ?? tab.connection.project;
+}
+
+const firstType = (types: { name: string }[]) => types.find(({ name }) => name === "Task")?.name ?? types[0]?.name ?? "Task";
+
 function CreateSheet({ parent }: { parent: Issue | null }) {
   const tab = useTab();
-  const types = tab.state.issueTypes.filter(({ subtask }) => !subtask);
-  const [type, setType] = useState(types.find(({ name }) => name === "Task")?.name ?? types[0]?.name ?? "Task");
+  const projects = [tab.connection.project, ...new Set(tab.connection.sources.map(({ project }) => project))].filter((project, index, all) => all.indexOf(project) === index);
+  const [project, setProject] = useState(() => firstProject(tab, parent));
+  const typesIn = (key: string) => (tab.state.issueTypes[key] ?? []).filter(({ subtask }) => !subtask);
+  const types = typesIn(project);
+  const [type, setType] = useState(firstType(types));
   const [summary, setSummary] = useState("");
   const [markdown, setMarkdown, forget] = useDraft("create");
   const [labels, setLabels] = useState("");
@@ -168,7 +185,7 @@ function CreateSheet({ parent }: { parent: Issue | null }) {
   const write = useWrite("Created it");
   const action: WriteAction = {
     kind: "create",
-    project: tab.connection.project,
+    project,
     type,
     summary: summary.trim(),
     markdown,
@@ -188,13 +205,30 @@ function CreateSheet({ parent }: { parent: Issue | null }) {
       tab.toast(`Created ${reply.key ?? "it"} (${summary.trim()})`);
     });
   return (
-    <SheetFrame title={parent ? `New issue under ${parent.key}` : `New issue in ${tab.connection.project}`} command={command} footer={<Buttons {...write} confirm="Create in Jira" disabled={!summary.trim()} onConfirm={create} />}>
+    <SheetFrame title={parent ? `New issue under ${parent.key}` : `New issue in ${project}`} command={command} footer={<Buttons {...write} confirm="Create in Jira" disabled={!summary.trim()} onConfirm={create} />}>
       {parent && <p className="sheet-about">{parent.summary}</p>}
       <input className="wide-input title-input" aria-label="Summary" placeholder="Summary" value={summary} onChange={(event) => setSummary(event.target.value)} autoFocus onKeyDown={(event) => event.key === "Enter" && create()} />
       <div className="field-row">
+        {!parent && projects.length > 1 && (
+          <label>
+            Project
+            <select
+              aria-label="Project"
+              value={project}
+              onChange={(event) => {
+                setProject(event.target.value);
+                setType(firstType(typesIn(event.target.value)));
+              }}
+            >
+              {projects.map((key) => (
+                <option key={key}>{key}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Type
-          <select value={type} onChange={(event) => setType(event.target.value)}>
+          <select aria-label="Type" value={type} onChange={(event) => setType(event.target.value)}>
             {(types.length ? types : [{ name: "Task" }]).map(({ name }) => (
               <option key={name}>{name}</option>
             ))}
@@ -235,6 +269,151 @@ function SaveViewSheet({ jql }: { jql: string }) {
   );
 }
 
+type FilterKind = "all" | "component" | "jql";
+
+/** The workspace's projects, and adding another, whole or only the issues of a component or a query. */
+function SourcesSheet() {
+  const tab = useTab();
+  const { connection } = tab;
+  const [typedProject, setTypedProject] = useState("");
+  const [found, setFound] = useState<ProjectLookup | null>(null);
+  const [looking, setLooking] = useState(false);
+  const [kind, setKind] = useState<FilterKind>("component");
+  const [component, setComponent] = useState("");
+  const [jql, setJql] = useState("");
+  const [name, setName] = useState("");
+  const [nameTyped, setNameTyped] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const filter = kind === "component" ? (component ? componentFilter(component) : "") : kind === "jql" ? jql.trim() : "";
+  const ready = !!found && !!name.trim() && (kind === "all" || !!filter);
+  const lookUp = async () => {
+    if (!typedProject.trim() || looking) return;
+    setLooking(true);
+    setProblem(null);
+    setFound(null);
+    try {
+      const reply = (await send({ kind: "look-up-project", project: typedProject })) as ProjectLookup;
+      setFound(reply);
+      setKind(reply.components.length ? "component" : "all");
+      setComponent("");
+      if (!nameTyped) setName(reply.name);
+    } catch (error) {
+      setProblem(failureText(error));
+    } finally {
+      setLooking(false);
+    }
+  };
+  const pickComponent = (picked: string) => {
+    setComponent(picked);
+    if (!nameTyped && found) setName(picked ? `${found.project} · ${picked}` : found.name);
+  };
+  const add = async () => {
+    if (!ready || !found || busy) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const reply = (await send({ kind: "add-source", name, project: found.project, filter })) as { added: string; found: number | null };
+      tab.showSheet(null);
+      tab.setView(`source:${reply.added}`);
+      tab.toast(reply.found === null ? `Added ${reply.added}` : `Added ${reply.added}: ${reply.found} ${reply.found === 1 ? "issue" : "issues"}`);
+    } catch (error) {
+      setProblem(failureText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <SheetFrame
+      title="Sources"
+      command={null}
+      jql={found ? sourceJql({ project: found.project, filter }) : null}
+      footer={<Buttons busy={busy} problem={problem} confirm="Add the source" disabled={!ready} onConfirm={() => void add()} />}
+    >
+      <p className="muted small">Mine, Recent, Reported and Watching show the issues of every source, and each added source has a view of its own. Sprint stays with {connection.project}.</p>
+      <ul className="sources">
+        <li>
+          <b>{connection.project}</b> <span className="muted">· {connection.projectName}, all of it</span>
+        </li>
+        {connection.sources.map((source) => (
+          <li key={source.name}>
+            <b>{source.name}</b> <span className="muted">· {source.filter ? `${source.project} where ${source.filter}` : `all of ${source.project}`}</span>
+            <span className="spacer" />
+            <button type="button" className="link danger" onClick={() => void send({ kind: "remove-source", name: source.name }).then(() => tab.toast(`Removed ${source.name}`))}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <h3 className="sheet-heading">Add a source</h3>
+      <div className="field-row">
+        <label className="grow">
+          Project key
+          <input
+            className="wide-input"
+            aria-label="Project key"
+            placeholder="Like SUP, the letters before the dash"
+            value={typedProject}
+            onChange={(event) => {
+              setTypedProject(event.target.value.toUpperCase());
+              setFound(null);
+            }}
+            onKeyDown={(event) => event.key === "Enter" && void lookUp()}
+            autoFocus
+          />
+        </label>
+        <button type="button" className="button" disabled={!typedProject.trim() || looking} onClick={() => void lookUp()}>
+          {looking && <Spinner />} Look it up
+        </button>
+      </div>
+      {found && (
+        <>
+          <p className="sheet-about">
+            {found.project} is {found.name}.
+          </p>
+          <div className="choices" role="radiogroup" aria-label="Which issues">
+            <label>
+              <input type="radio" name="which" checked={kind === "all"} onChange={() => setKind("all")} /> All of its issues
+            </label>
+            {found.components.length > 0 && (
+              <span className="choice-row">
+                <label>
+                  <input type="radio" name="which" checked={kind === "component"} onChange={() => setKind("component")} /> Only the component
+                </label>
+                <select aria-label="Component" value={component} onFocus={() => setKind("component")} onChange={(event) => pickComponent(event.target.value)}>
+                  <option value="">Pick one…</option>
+                  {found.components.map((each) => (
+                    <option key={each}>{each}</option>
+                  ))}
+                </select>
+              </span>
+            )}
+            <span className="choice-row">
+              <label>
+                <input type="radio" name="which" checked={kind === "jql"} onChange={() => setKind("jql")} /> Only issues matching JQL
+              </label>
+              <input className="inline-input grow" aria-label="Filter JQL" placeholder="like labels = escalated" value={jql} spellCheck={false} onFocus={() => setKind("jql")} onChange={(event) => setJql(event.target.value)} />
+            </span>
+          </div>
+          <label>
+            View name
+            <input
+              className="wide-input"
+              aria-label="View name"
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+                setNameTyped(true);
+              }}
+              onKeyDown={(event) => event.key === "Enter" && void add()}
+            />
+          </label>
+        </>
+      )}
+    </SheetFrame>
+  );
+}
+
 function DisconnectSheet() {
   const tab = useTab();
   return (
@@ -270,6 +449,8 @@ export function SheetView({ sheet }: { sheet: Sheet }) {
       return <CreateSheet parent={sheet.parent} />;
     case "save-view":
       return <SaveViewSheet jql={sheet.jql} />;
+    case "sources":
+      return <SourcesSheet />;
     case "disconnect":
       return <DisconnectSheet />;
   }

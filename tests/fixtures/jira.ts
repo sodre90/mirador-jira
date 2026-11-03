@@ -19,6 +19,7 @@ export const STATUSES = {
   progress: { name: "In Progress", category: "indeterminate" },
   review: { name: "In Review", category: "indeterminate" },
   done: { name: "Done", category: "done" },
+  waiting: { name: "Waiting for support", category: "new" },
 } as const;
 
 export type FakeStatus = (typeof STATUSES)[keyof typeof STATUSES];
@@ -59,6 +60,7 @@ export interface FakeIssue {
   comments: FakeComment[];
   created: string;
   updated: string;
+  components?: string[];
 }
 
 const paragraph = (...texts: string[]) => ({ type: "paragraph", content: texts.map((text) => ({ type: "text", text })) });
@@ -212,4 +214,28 @@ export const ISSUE_TYPES = [
   { name: "Task", subtask: false },
   { name: "Bug", subtask: false },
   { name: "Sub-task", subtask: true },
+];
+
+/** A second made-up project, Kite's support desk, whose escalations name the product they're about as a component. */
+export const SUPPORT = { key: "SUP", name: "Kite support", components: ["Billing", "Kite", "Sync"], issueTypes: [{ name: "Escalation", subtask: false }, { name: "Question", subtask: false }] };
+
+const escalation = (fields: Pick<FakeIssue, "key" | "summary" | "status" | "assignee" | "components" | "updated">): FakeIssue => ({
+  type: "Escalation",
+  priority: "High",
+  reporter: SAM,
+  labels: [],
+  description: null,
+  parent: null,
+  sprint: null,
+  watchers: [],
+  links: [],
+  comments: [],
+  created: "2026-10-30T08:00:00.000+0000",
+  ...fields,
+});
+
+export const SUPPORT_ISSUES: FakeIssue[] = [
+  escalation({ key: "SUP-21", summary: "A customer's notes vanish after renaming a folder", status: STATUSES.waiting, assignee: DANA, components: ["Kite"], updated: "2026-11-02T12:00:00.000+0000" }),
+  escalation({ key: "SUP-22", summary: "Refund a double charge", status: STATUSES.waiting, assignee: DANA, components: ["Billing"], updated: "2026-11-02T13:00:00.000+0000" }),
+  escalation({ key: "SUP-23", summary: "Sync stalls on a hotel's wifi", status: STATUSES.progress, assignee: null, components: ["Kite"], updated: "2026-11-02T11:00:00.000+0000" }),
 ];

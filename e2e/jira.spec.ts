@@ -148,9 +148,46 @@ test("a workspace connects to its Jira project, and its issues are found, read, 
     await expect(row(page, "KITE-431")).toBeVisible();
   });
 
-  await test.step("the Sprint view shows the active sprint as a board, and dropping a card moves it", async () => {
+  await test.step("an escalation project joins the workspace, only for its component, with a view of its own", async () => {
     await detail(page).getByRole("button", { name: "Close the issue's panel" }).click();
+    await tab(page).getByRole("button", { name: "More", exact: true }).click();
+    await tab(page).getByRole("button", { name: "Sources…" }).click();
+    await sheet(page).getByLabel("Project key").fill("SUP");
+    await sheet(page).getByRole("button", { name: "Look it up" }).click();
+    await expect(sheet(page)).toContainText("SUP is Kite support.");
+    await sheet(page).getByLabel("Component", { exact: true }).selectOption("Kite");
+    await expect(sheet(page).getByLabel("View name")).toHaveValue("SUP · Kite");
+    await sheet(page).getByLabel("View name").fill("Escalations");
+    await expect(sheet(page).locator(".jql")).toHaveText('project = SUP AND (component = "Kite")');
+    await shoot(page, "sources");
+    await sheet(page).getByRole("button", { name: "Add the source" }).click();
+    await expect(toast(page)).toContainText("Added Escalations: 2 issues");
+    await expect(view(page, "Escalations")).toHaveAttribute("aria-selected", "true");
+    await expect(view(page, "Escalations")).toContainText("2");
+    await expect(rows(page)).toHaveCount(2);
+    await expect(row(page, "SUP-21")).toContainText("A customer's notes vanish after renaming a folder");
+    await shoot(page, "escalations");
+  });
+
+  await test.step("a new issue from the source's view goes in its project, with that project's types", async () => {
+    await tab(page).getByRole("button", { name: "+ New" }).click();
+    await expect(sheet(page).getByLabel("Project", { exact: true })).toHaveValue("SUP");
+    await expect(sheet(page).getByLabel("Type", { exact: true })).toHaveValue("Escalation");
+    await sheet(page).getByLabel("Project", { exact: true }).selectOption("KITE");
+    await expect(sheet(page).getByLabel("Type", { exact: true })).toHaveValue("Task");
+    await sheet(page).getByRole("button", { name: "Cancel" }).click();
+  });
+
+  await test.step("Mine takes in my escalations of the component, and no other", async () => {
+    await view(page, "Mine").click();
+    await expect(row(page, "SUP-21")).toBeVisible();
+    await expect(row(page, "KITE-412")).toBeVisible();
+    await expect(row(page, "SUP-22")).toHaveCount(0);
+  });
+
+  await test.step("the Sprint view shows the active sprint as a board, and dropping a card moves it", async () => {
     await view(page, "Sprint").click();
+    await expect(column(page, "Waiting for support")).toHaveCount(0);
     await expect(tab(page).locator(".sprint-bar")).toContainText("Kite sprint 7");
     await expect(column(page, "To Do").locator('.card[data-key="KITE-398"]')).toBeVisible();
     await expect(column(page, "In Review").locator('.card[data-key="KITE-377"]')).toBeVisible();

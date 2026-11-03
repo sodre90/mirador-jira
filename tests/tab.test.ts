@@ -32,7 +32,8 @@ function setUp({ commits = COMMITS, branches = BRANCHES } = {}) {
   return { jira, tab, context, state, act, pass, settle, stored };
 }
 
-const MINE = viewJql("mine", "KITE", null, []);
+const KITE_ONLY = { project: "KITE", sources: [] };
+const MINE = viewJql("mine", KITE_ONLY, null, []);
 
 async function connected() {
   const setup = setUp();
@@ -52,8 +53,8 @@ describe("connecting", () => {
   test("connecting checks the project with acli and keeps the site acli is signed in to", async () => {
     const { act, state } = setUp();
     await act({ kind: "connect", project: "kite" });
-    expect((await state()).connection).toEqual({ site: "https://kite.example.com", project: "KITE", projectName: "Kite" });
-    expect((await state()).issueTypes.map(({ name }) => name)).toContain("Bug");
+    expect((await state()).connection).toEqual({ site: "https://kite.example.com", project: "KITE", projectName: "Kite", sources: [] });
+    expect((await state()).issueTypes.KITE!.map(({ name }) => name)).toContain("Bug");
   });
 
   test("before connecting, a signed-out or missing acli becomes the tab's problem, so the panel shows its fix", async () => {
@@ -77,9 +78,9 @@ describe("connecting", () => {
 
   test("a project Jira doesn't have, or acli signed out, says so", async () => {
     const { act, jira } = setUp();
-    expect(act({ kind: "connect", project: "NOPE" })).rejects.toThrow("Jira has no project NOPE on kite.example.com");
+    await expect(act({ kind: "connect", project: "NOPE" })).rejects.toThrow("Jira has no project NOPE on kite.example.com");
     jira.state.signedIn = false;
-    expect(act({ kind: "connect", project: "KITE" })).rejects.toThrow("unauthorized");
+    await expect(act({ kind: "connect", project: "KITE" })).rejects.toThrow("unauthorized");
   });
 });
 
@@ -89,7 +90,7 @@ describe("reading", () => {
     const { lists, me, statuses } = await state();
     expect(lists[MINE]?.issues.map(({ key }) => key)).toEqual(["KITE-412", "KITE-421"]);
     expect(me).toEqual({ email: "dana@kite.example.com", accountId: "acct-dana" });
-    expect(statuses.map(({ name }) => name).sort()).toEqual(["Done", "In Progress", "In Review", "To Do"]);
+    expect(statuses.KITE!.map(({ name }) => name).sort()).toEqual(["Done", "In Progress", "In Review", "To Do"]);
   });
 
   test("however many views ask, a list is read at most once per gap", async () => {
@@ -187,19 +188,19 @@ describe("changes made at once", () => {
     const { act, jira } = await connected();
     const reply = (await act({ kind: "transition", key: "KITE-412", status: "In Review" })) as WriteReply;
     jira.answer("acli", ["jira", "workitem", "transition", "--key", "KITE-412", "--status", "Done", "--yes"]);
-    expect(act({ kind: "undo", undo: reply.undo })).rejects.toThrow("KITE-412 (Notes vanish after renaming a folder) changed since");
+    await expect(act({ kind: "undo", undo: reply.undo })).rejects.toThrow("KITE-412 (Notes vanish after renaming a folder) changed since");
     expect(jira.state.issues.find(({ key }) => key === "KITE-412")?.status.name).toBe("Done");
   });
 
   test("a transition the workflow doesn't allow reaches the user in Jira's words", async () => {
     const { act } = await connected();
     await act({ kind: "transition", key: "KITE-412", status: "Done" });
-    expect(act({ kind: "transition", key: "KITE-412", status: "In Review" })).rejects.toThrow("no transition to status 'In Review'");
+    await expect(act({ kind: "transition", key: "KITE-412", status: "In Review" })).rejects.toThrow("no transition to status 'In Review'");
   });
 
   test("assigning myself, with Undo back to nobody", async () => {
     const { act, jira, state } = await connected();
-    await act({ kind: "refresh", jql: viewJql("recent", "KITE", null, []), counts: false });
+    await act({ kind: "refresh", jql: viewJql("recent", KITE_ONLY, null, []), counts: false });
     const me = (await state()).people.find(({ name }) => name === "Dana Reyes")!;
     const reply = (await act({ kind: "assign", key: "KITE-398", to: me })) as WriteReply;
     expect(jira.log.find((args) => args[2] === "assign")).toEqual(["jira", "workitem", "assign", "--key", "KITE-398", "--assignee", "@me", "--yes"]);
@@ -234,3 +235,58 @@ describe("changes the user confirms", () => {
     expect(jira.state.issues.at(-1)).toMatchObject({ summary: "Crash on empty note", assignee: { accountId: "acct-dana" }, labels: ["crash"] });
   });
 });
+
+describe("sources", () => {
+  const addEscalations = (act: (action: object) => Promise<unknown>) => act({ kind: "add-source", name: "Escalations", project: "sup", filter: 'component = "Kite"' });
+
+  test("a connection stored before sources still loads, with none", async () => {
+    const { context, state } = setUp();
+    context.storage.set("connection", { site: "https://kite.example.com", project: "KITE", projectName: "Kite" });
+    expect((await state()).connection?.sources).toEqual([]);
+  });
+
+  test("looking a project up gives its name and components", async () => {
+    const { act } = await connected();
+    expect(await act({ kind: "look-up-project", project: "sup" })).toEqual({ project: "SUP", name: "Kite support", components: ["Billing", "Kite", "Sync"] });
+    await expect(act({ kind: "look-up-project", project: "NOPE" })).rejects.toThrow("Jira has no project NOPE");
+  });
+
+  test("an added source joins Mine, only as far as its filter lets in, and has a view of its own", async () => {
+    const { act, state, pass, settle } = await connected();
+    expect(await addEscalations(act)).toEqual({ added: "Escalations", found: 2 });
+    const { connection } = await state();
+    await settle();
+    expect((await state()).counts[viewJql("source:Escalations", connection!, null, [])]).toBe(2);
+    const mine = viewJql("mine", connection!, null, []);
+    pass(MIN_READ_GAP_MS);
+    await act({ kind: "refresh", jql: mine, counts: true });
+    await act({ kind: "refresh", jql: viewJql("source:Escalations", connection!, null, []), counts: false });
+    const { lists, counts, statuses, issueTypes } = await state();
+    expect(lists[mine]?.issues.map(({ key }) => key).sort()).toEqual(["KITE-412", "KITE-421", "SUP-21"]);
+    expect(lists[viewJql("source:Escalations", connection!, null, [])]?.issues.map(({ key }) => key).sort()).toEqual(["SUP-21", "SUP-23"]);
+    expect(counts[viewJql("source:Escalations", connection!, null, [])]).toBe(2);
+    expect(statuses.SUP!.map(({ name }) => name)).toContain("Waiting for support");
+    expect(statuses.KITE!.map(({ name }) => name)).not.toContain("Waiting for support");
+    expect(issueTypes.SUP!.map(({ name }) => name)).toEqual(["Escalation", "Question"]);
+  });
+
+  test("a component Jira doesn't have, a sorting filter or a taken name is refused before it's added", async () => {
+    const { act, state } = await connected();
+    await expect(act({ kind: "add-source", name: "Escalations", project: "SUP", filter: 'component = "Kiet"' })).rejects.toThrow("Jira can't read that filter: failed to parse JQL query: the value 'kiet' does not exist for the field 'component'.");
+    await expect(act({ kind: "add-source", name: "Escalations", project: "SUP", filter: "labels = x ORDER BY created" })).rejects.toThrow("can't sort");
+    await expect(act({ kind: "add-source", name: "Mine", project: "SUP", filter: "" })).rejects.toThrow('There\'s a view called "Mine" already');
+    expect((await state()).connection?.sources).toEqual([]);
+  });
+
+  test("a new issue can go in a source's project but no other, and a source can be removed", async () => {
+    const { act, state } = await connected();
+    await addEscalations(act);
+    await expect(act({ kind: "save-view", name: "escalations", jql: "labels = x" })).rejects.toThrow("a source's view");
+    const created = (await act({ kind: "create", project: "SUP", type: "Escalation", summary: "Export fails for a team", markdown: "", labels: [], parent: null, assignToMe: false })) as WriteReply;
+    expect(created.key).toMatch(/^SUP-/);
+    await expect(act({ kind: "create", project: "OPS", type: "Task", summary: "x", markdown: "", labels: [], parent: null, assignToMe: false })).rejects.toThrow("not OPS");
+    await act({ kind: "remove-source", name: "Escalations" });
+    expect((await state()).connection?.sources).toEqual([]);
+  });
+});
+

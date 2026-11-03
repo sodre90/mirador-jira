@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { adfToMarkdown, editableAsMarkdown } from "../jira/adf.ts";
-import { childrenJql } from "../jira/jql.ts";
+import { childrenJql, projectOf } from "../jira/jql.ts";
 import { issueUrl, mentionText, planText, workText } from "../jira/handoff.ts";
 import type { Comment, Detail as DetailData, Issue, Link, Related, WriteAction } from "../jira/model.ts";
 import { failureText, keyWithSummary, send, useTab } from "./bridge.ts";
@@ -85,7 +85,8 @@ function LabelAdder({ issue }: { issue: Issue }) {
 function Fields({ issue, detail }: { issue: Issue; detail: DetailData | null }) {
   const tab = useTab();
   const { state } = tab;
-  const statuses = state.statuses.some(({ name }) => name === issue.status.name) ? state.statuses : [issue.status, ...state.statuses];
+  const known = state.statuses[projectOf(issue.key)] ?? [];
+  const statuses = known.some(({ name }) => name === issue.status.name) ? known : [issue.status, ...known];
   const me = state.people.find((person) => tab.isMe(person)) ?? null;
   const others = state.people.filter((person) => !tab.isMe(person) && person.accountId !== issue.assignee?.accountId);
   const sprint = detail?.sprints.find(({ state: sprintState }) => sprintState !== "closed") ?? detail?.sprints.at(-1) ?? null;

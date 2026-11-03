@@ -102,6 +102,25 @@ export interface Connection {
   site: string;
   project: string;
   projectName: string;
+  /** Other projects whose issues the workspace takes in too, each perhaps only in part. */
+  sources: Source[];
+}
+
+/** Another project's issues in the workspace's views, such as the escalations of one component. */
+export interface Source {
+  /** The name of its own view. */
+  name: string;
+  project: string;
+  projectName: string;
+  /** JQL that narrows the project, such as component = "Sync"; empty for the whole project. */
+  filter: string;
+}
+
+/** What adding a source needs to know of its project. */
+export interface ProjectLookup {
+  project: string;
+  name: string;
+  components: string[];
 }
 
 /** A project the workspace's git history names, offered to connect to. */
@@ -121,7 +140,7 @@ export interface SavedView {
   jql: string;
 }
 
-export type ViewId = "mine" | "sprint" | "recent" | "reported" | "watching" | `saved:${string}`;
+export type ViewId = "mine" | "sprint" | "recent" | "reported" | "watching" | `source:${string}` | `saved:${string}`;
 
 /** What the view remembers between visits, for this workspace. */
 export interface Prefs {
@@ -147,14 +166,14 @@ export interface TabState {
   counts: Record<string, number>;
   /** By key. */
   details: Record<string, DetailResult>;
-  /** The statuses seen in this project, for the status picker, as Jira can't be asked which transitions an issue has. */
-  statuses: Status[];
+  /** The statuses seen in each project, by its key, for the status picker, as Jira can't be asked which transitions an issue has. */
+  statuses: Record<string, Status[]>;
   /** The people seen in this project, for the assignee picker. */
   people: Person[];
   /** The sprints seen on this project's issues, open ones first. */
   sprints: Sprint[];
-  /** What a new issue in the project can be. */
-  issueTypes: IssueType[];
+  /** What a new issue can be, in each project of the workspace, by its key. */
+  issueTypes: Record<string, IssueType[]>;
   savedViews: SavedView[];
   prefs: Prefs;
   /** The lists and details being fetched now, by their keys. */
@@ -187,6 +206,9 @@ export type TabAction =
   | { kind: "save-view"; name: string; jql: string }
   | { kind: "remove-view"; name: string }
   | { kind: "find-sprints" }
+  | { kind: "look-up-project"; project: string }
+  | { kind: "add-source"; name: string; project: string; filter: string }
+  | { kind: "remove-source"; name: string }
   | { kind: "undo"; undo: Undo }
   | WriteAction;
 

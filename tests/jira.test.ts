@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { FILE, problemOf, shellText, writePlan } from "../jira/acli.ts";
 import { adfToMarkdown, adfToText, editableAsMarkdown, markdownToAdf, type AdfNode } from "../jira/adf.ts";
 import { candidatesOf } from "../jira/detect.ts";
-import { searchJql, viewJql } from "../jira/jql.ts";
+import { componentFilter, filterProblem, scopeJql, searchJql, viewJql, viewShown } from "../jira/jql.ts";
 import { detailOf, issueOf } from "../jira/normalize.ts";
 import { FakeJira } from "./fake-acli.ts";
 
 const viewed = (key: string) => detailOf(JSON.parse(new FakeJira().answer("acli", ["jira", "workitem", "view", key, "--json"]).stdout));
+
+const KITE_ONLY = { project: "KITE", sources: [] };
 
 describe("rich text", () => {
   test("Markdown becomes Jira's rich text, and comes back the same", () => {
@@ -40,16 +42,16 @@ describe("rich text", () => {
 
 describe("JQL", () => {
   test("each view asks for its issues in the project", () => {
-    expect(viewJql("mine", "KITE", null, [])).toBe("project = KITE AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC");
-    expect(viewJql("sprint", "KITE", 7007, [])).toBe("project = KITE AND sprint = 7007 ORDER BY Rank ASC");
-    expect(viewJql("sprint", "KITE", null, [])).toBe("project = KITE AND sprint in openSprints() ORDER BY Rank ASC");
-    expect(viewJql("saved:Sync bugs", "KITE", null, [{ name: "Sync bugs", jql: "project = KITE AND labels = sync" }])).toBe("project = KITE AND labels = sync");
+    expect(viewJql("mine", KITE_ONLY, null, [])).toBe("project = KITE AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC");
+    expect(viewJql("sprint", KITE_ONLY, 7007, [])).toBe("project = KITE AND sprint = 7007 ORDER BY Rank ASC");
+    expect(viewJql("sprint", KITE_ONLY, null, [])).toBe("project = KITE AND sprint in openSprints() ORDER BY Rank ASC");
+    expect(viewJql("saved:Sync bugs", KITE_ONLY, null, [{ name: "Sync bugs", jql: "project = KITE AND labels = sync" }])).toBe("project = KITE AND labels = sync");
   });
 
   test("the search box takes JQL as written, an issue by its key, or words", () => {
-    expect(searchJql("project = KITE AND labels = sync", "KITE")).toBe("project = KITE AND labels = sync");
-    expect(searchJql("kite-412", "KITE")).toBe("key = KITE-412");
-    expect(searchJql('rename "folder"', "KITE")).toBe('project = KITE AND text ~ "rename \\"folder\\"" ORDER BY updated DESC');
+    expect(searchJql("project = KITE AND labels = sync", KITE_ONLY)).toBe("project = KITE AND labels = sync");
+    expect(searchJql("kite-412", KITE_ONLY)).toBe("key = KITE-412");
+    expect(searchJql('rename "folder"', KITE_ONLY)).toBe('project = KITE AND text ~ "rename \\"folder\\"" ORDER BY updated DESC');
   });
 });
 
@@ -90,3 +92,36 @@ describe("acli's answers", () => {
     expect(JSON.parse(comment.file!.content).content[0].content[1]).toEqual({ type: "text", text: "1.8.3", marks: [{ type: "strong" }] });
   });
 });
+
+describe("sources", () => {
+  const ESCALATIONS = { name: "Escalations", project: "SUP", projectName: "Kite support", filter: componentFilter("Kite") };
+  const WITH_SUP = { project: "KITE", sources: [ESCALATIONS] };
+
+  test("every view searches the workspace's project and each source in parentheses of its own", () => {
+    expect(scopeJql(WITH_SUP)).toBe('((project = KITE) OR (project = SUP AND (component = "Kite")))');
+    expect(viewJql("mine", WITH_SUP, null, [])).toBe('((project = KITE) OR (project = SUP AND (component = "Kite"))) AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC');
+    expect(searchJql("rename", WITH_SUP)).toBe('((project = KITE) OR (project = SUP AND (component = "Kite"))) AND text ~ "rename" ORDER BY updated DESC');
+  });
+
+  test("a source has a view of its own, and Sprint stays with the workspace's project", () => {
+    expect(viewJql("source:Escalations", WITH_SUP, null, [])).toBe('project = SUP AND (component = "Kite") ORDER BY updated DESC');
+    expect(viewJql("source:Escalations", { project: "KITE", sources: [{ ...ESCALATIONS, filter: "" }] }, null, [])).toBe("project = SUP ORDER BY updated DESC");
+    expect(viewJql("sprint", WITH_SUP, 7007, [])).toBe("project = KITE AND sprint = 7007 ORDER BY Rank ASC");
+  });
+
+  test("a removed source or saved view shows Mine", () => {
+    expect(viewShown("source:Escalations", KITE_ONLY, [])).toBe("mine");
+    expect(viewShown("saved:Gone", WITH_SUP, [])).toBe("mine");
+    expect(viewJql("source:Escalations", KITE_ONLY, null, [])).toBe(viewJql("mine", KITE_ONLY, null, []));
+    expect(viewShown("source:Escalations", WITH_SUP, [])).toBe("source:Escalations");
+  });
+
+  test("a component is quoted, and a filter that sorts or leaves a parenthesis open is refused", () => {
+    expect(componentFilter('Kite "Pro"')).toBe('component = "Kite \\"Pro\\""');
+    expect(filterProblem("labels = escalated")).toBeNull();
+    expect(filterProblem('component = "a (b"')).toBeNull();
+    expect(filterProblem("labels = x ORDER BY created")).toContain("ORDER BY");
+    expect(filterProblem("(labels = x")).toContain("parentheses");
+  });
+});
+

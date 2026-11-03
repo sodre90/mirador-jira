@@ -17,6 +17,7 @@ export type Sheet =
   | { kind: "assign"; issue: Issue; to: Person | null }
   | { kind: "create"; parent: Issue | null }
   | { kind: "save-view"; jql: string }
+  | { kind: "sources" }
   | { kind: "disconnect" };
 
 /** What every part of the tab reaches: the host's state for the workspace, and the user's place in it. */

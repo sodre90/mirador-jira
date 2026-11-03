@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Ran, Runner } from "../jira/run.ts";
-import { DANA, ISSUE_TYPES, ISSUES, ME, PROJECT, SITE, SPRINT_7, SPRINT_8, STATUSES, WORKFLOW, type FakeIssue, type FakePerson } from "./fixtures/jira.ts";
+import { DANA, ISSUE_TYPES, ISSUES, ME, PROJECT, SITE, SPRINT_7, SPRINT_8, STATUSES, SUPPORT, SUPPORT_ISSUES, WORKFLOW, type FakeIssue, type FakePerson } from "./fixtures/jira.ts";
 
 /** What search lets through, as the real acli does: it refuses any other field. */
 const SEARCH_FIELDS = new Set(["issuetype", "key", "summary", "status", "priority", "assignee", "reporter", "labels", "description"]);
@@ -14,7 +14,52 @@ export interface FakeJiraState {
   nextComment: number;
 }
 
-export const freshState = (): FakeJiraState => ({ issues: structuredClone(ISSUES), signedIn: true, nextKey: 431, nextComment: 10003 });
+export const freshState = (): FakeJiraState => ({ issues: structuredClone([...ISSUES, ...SUPPORT_ISSUES]), signedIn: true, nextKey: 431, nextComment: 10003 });
+
+const PROJECTS: Record<string, { key: string; name: string; issueTypes: unknown[]; components: string[] }> = {
+  [PROJECT]: { key: PROJECT, name: "Kite", issueTypes: ISSUE_TYPES, components: [] },
+  [SUPPORT.key]: SUPPORT,
+};
+const COMPONENTS = new Set(Object.values(PROJECTS).flatMap(({ components }) => components.map((name) => name.toLowerCase())));
+
+type Predicate = (issue: FakeIssue) => boolean;
+
+/** JQL's clauses joined by AND and OR, in parentheses as deep as needed; quotes and a function's () stay in their clause. */
+function tokensOf(where: string): string[] {
+  const tokens: string[] = [];
+  let clause = "";
+  let quoted = false;
+  let inner = 0;
+  const end = () => {
+    if (clause.trim()) tokens.push(clause.trim());
+    clause = "";
+  };
+  for (const char of where) {
+    if (char === '"' && !clause.endsWith("\\")) quoted = !quoted;
+    if (!quoted && char === "(" && !clause.trim()) {
+      tokens.push("(");
+      continue;
+    }
+    if (!quoted && char === "(") inner += 1;
+    if (!quoted && char === ")") {
+      if (inner > 0) inner -= 1;
+      else {
+        end();
+        tokens.push(")");
+        continue;
+      }
+    }
+    clause += char;
+    const joined = !quoted && inner === 0 && /\s(AND|OR)\s$/i.exec(clause);
+    if (joined) {
+      clause = clause.slice(0, -joined[0].length);
+      end();
+      tokens.push(joined[1]!.toUpperCase());
+    }
+  }
+  end();
+  return tokens;
+}
 
 const ok = (stdout: string): Ran => ({ code: 0, stdout, stderr: "" });
 const fail = (message: string): Ran => ({ code: 1, stdout: "", stderr: `✗ Error: ${message}\n` });
@@ -63,7 +108,7 @@ export class FakeJira {
         updated: issue.updated,
         resolution: issue.status.category === "done" ? { name: "Done" } : null,
         duedate: null,
-        components: [],
+        components: (issue.components ?? []).map((name) => ({ name })),
         fixVersions: [],
         parent: parent ? this.brief(parent) : null,
         subtasks: this.state.issues.filter((each) => each.parent === issue.key && each.type === "Sub-task").map((each) => this.brief(each)),
@@ -80,31 +125,84 @@ export class FakeJira {
     };
   }
 
-  /** The JQL the tab writes: clauses joined by AND, and an ORDER BY. Anything else is a parse error, as Jira would say. */
+  /** The JQL the tab writes: clauses joined by AND and OR in parentheses, and an ORDER BY. Anything else is a parse error, as Jira would say. */
   search(jql: string): FakeIssue[] | string {
     const [where = "", order = ""] = jql.split(/\s+order by\s+/i);
-    const clauses = where.trim() ? where.split(/\s+AND\s+/i) : [];
-    let found = [...this.state.issues];
-    for (const clause of clauses) {
-      const text = clause.trim();
-      let match: RegExpExecArray | null;
-      if ((match = /^project\s*=\s*"?(\w+)"?$/i.exec(text))) found = found.filter(({ key }) => key.startsWith(`${match![1]!.toUpperCase()}-`));
-      else if ((match = /^key\s*=\s*([A-Z]+-\d+)$/i.exec(text))) found = found.filter(({ key }) => key === match![1]!.toUpperCase());
-      else if ((match = /^parent\s*=\s*([A-Z]+-\d+)$/i.exec(text))) found = found.filter(({ parent }) => parent === match![1]!.toUpperCase());
-      else if (/^assignee\s*=\s*currentUser\(\)$/i.test(text)) found = found.filter(({ assignee }) => assignee?.accountId === ME.accountId);
-      else if (/^reporter\s*=\s*currentUser\(\)$/i.test(text)) found = found.filter(({ reporter }) => reporter.accountId === ME.accountId);
-      else if (/^watcher\s*=\s*currentUser\(\)$/i.test(text)) found = found.filter(({ watchers }) => watchers.includes(ME.accountId));
-      else if (/^statusCategory\s*!=\s*Done$/i.test(text)) found = found.filter(({ status }) => status.category !== "done");
-      else if (/^sprint in openSprints\(\)$/i.test(text)) found = found.filter(({ sprint }) => sprint === SPRINT_7.id || sprint === SPRINT_8.id);
-      else if ((match = /^sprint\s*=\s*(\d+)$/i.exec(text))) found = found.filter(({ sprint }) => sprint === Number(match![1]));
-      else if ((match = /^text\s*~\s*"(.*)"$/i.exec(text))) {
-        const words = match[1]!.toLowerCase();
-        found = found.filter((issue) => JSON.stringify([issue.summary, issue.description, issue.comments.map(({ body }) => body)]).toLowerCase().includes(words));
-      } else return `failed to parse JQL query: error in the jql query: expecting operator but got '${text.split(/\s+/)[0]}'.`;
-    }
+    const tokens = tokensOf(where);
+    let at = 0;
+    const or = (): Predicate | string => {
+      let left = and();
+      while (typeof left !== "string" && tokens[at] === "OR") {
+        at += 1;
+        const right = and();
+        if (typeof right === "string") return right;
+        const before = left;
+        left = (issue) => before(issue) || right(issue);
+      }
+      return left;
+    };
+    const and = (): Predicate | string => {
+      let left = term();
+      while (typeof left !== "string" && tokens[at] === "AND") {
+        at += 1;
+        const right = term();
+        if (typeof right === "string") return right;
+        const before = left;
+        left = (issue) => before(issue) && right(issue);
+      }
+      return left;
+    };
+    const term = (): Predicate | string => {
+      const token = tokens[at++];
+      if (token === "(") {
+        const inside = or();
+        if (tokens[at++] !== ")") return "failed to parse JQL query: expecting ')'.";
+        return inside;
+      }
+      return token === undefined ? "failed to parse JQL query: expecting a clause." : this.clause(token);
+    };
+    const matches = tokens.length ? or() : () => true;
+    if (typeof matches === "string") return matches;
+    if (at < tokens.length) return `failed to parse JQL query: unexpected '${tokens[at]}'.`;
+    const found = this.state.issues.filter(matches);
     if (/updated/i.test(order)) found.sort((a, b) => b.updated.localeCompare(a.updated));
     if (/created/i.test(order)) found.sort((a, b) => b.created.localeCompare(a.created));
     return found;
+  }
+
+  private clause(text: string): Predicate | string {
+    let match: RegExpExecArray | null;
+    if ((match = /^project\s*=\s*"?(\w+)"?$/i.exec(text))) {
+      const key = match[1]!.toUpperCase();
+      return ({ key: issueKey }) => issueKey.startsWith(`${key}-`);
+    }
+    if ((match = /^key\s*=\s*([A-Z]+-\d+)$/i.exec(text))) {
+      const key = match[1]!.toUpperCase();
+      return (issue) => issue.key === key;
+    }
+    if ((match = /^parent\s*=\s*([A-Z]+-\d+)$/i.exec(text))) {
+      const key = match[1]!.toUpperCase();
+      return ({ parent }) => parent === key;
+    }
+    if ((match = /^component\s*=\s*(?:"((?:\\.|[^"])*)"|(\w+))$/i.exec(text))) {
+      const name = (match[1] ?? match[2]!).replace(/\\(.)/g, "$1");
+      if (!COMPONENTS.has(name.toLowerCase())) return `failed to parse JQL query: the value '${name.toLowerCase()}' does not exist for the field 'component'.`;
+      return ({ components }) => (components ?? []).some((each) => each.toLowerCase() === name.toLowerCase());
+    }
+    if (/^assignee\s*=\s*currentUser\(\)$/i.test(text)) return ({ assignee }) => assignee?.accountId === ME.accountId;
+    if (/^reporter\s*=\s*currentUser\(\)$/i.test(text)) return ({ reporter }) => reporter.accountId === ME.accountId;
+    if (/^watcher\s*=\s*currentUser\(\)$/i.test(text)) return ({ watchers }) => watchers.includes(ME.accountId);
+    if (/^statusCategory\s*!=\s*Done$/i.test(text)) return ({ status }) => status.category !== "done";
+    if (/^sprint in openSprints\(\)$/i.test(text)) return ({ sprint }) => sprint === SPRINT_7.id || sprint === SPRINT_8.id;
+    if ((match = /^sprint\s*=\s*(\d+)$/i.exec(text))) {
+      const id = Number(match[1]);
+      return ({ sprint }) => sprint === id;
+    }
+    if ((match = /^text\s*~\s*"(.*)"$/i.exec(text))) {
+      const words = match[1]!.toLowerCase();
+      return (issue) => JSON.stringify([issue.summary, issue.description, issue.comments.map(({ body }) => body)]).toLowerCase().includes(words);
+    }
+    return `failed to parse JQL query: error in the jql query: expecting operator but got '${text.split(/\s+/)[0]}'.`;
   }
 
   private touch(issue: FakeIssue) {
@@ -124,7 +222,10 @@ export class FakeJira {
     if (!this.state.signedIn) return fail("unauthorized: use 'acli jira auth login' to authenticate");
     switch (command) {
       case "jira project view":
-        return flag("--key") === PROJECT ? ok(JSON.stringify({ key: PROJECT, name: "Kite", issueTypes: ISSUE_TYPES })) : fail("No project could be found with key.");
+      {
+        const project = PROJECTS[flag("--key") ?? ""];
+        return project ? ok(JSON.stringify({ ...project, components: project.components.map((name, index) => ({ id: String(100 + index), name })) })) : fail("No project could be found with key.");
+      }
       case "jira board list-sprints":
         return flag("--id") === String(SPRINT_7.boardId) ? ok(JSON.stringify({ sprints: [SPRINT_7, SPRINT_8], isLast: true })) : fail("Board does not exist.");
       case "jira workitem search": {
@@ -186,11 +287,12 @@ export class FakeJira {
         return ok(`✓ Comment added to ${issue.key}\n`);
       }
       case "jira workitem create": {
-        if (flag("--project") !== PROJECT) return fail("No project could be found with key.");
+        const project = flag("--project") ?? "";
+        if (!PROJECTS[project]) return fail("No project could be found with key.");
         const at = new Date().toISOString().replace("Z", "+0000");
         const descriptionFile = flag("--description-file");
         const issue: FakeIssue = {
-          key: `${PROJECT}-${this.state.nextKey++}`,
+          key: `${project}-${this.state.nextKey++}`,
           summary: flag("--summary") ?? "",
           type: flag("--type") ?? "Task",
           status: STATUSES.todo,

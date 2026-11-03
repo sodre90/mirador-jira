@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { WorkspaceTab, WorkspaceTabContext } from "../mirador/api.ts";
 import { authArgs, countArgs, countOf, createdKeyOf, FILE, listArgs, problemOf, projectArgs, sprintsArgs, undoAction, viewArgs, writePlan } from "./acli.ts";
 import { branchesArgs, candidatesOf, commitsArgs } from "./detect.ts";
-import { BUILT_IN_VIEWS, viewJql } from "./jql.ts";
+import { allViews, BUILT_IN_VIEWS, filterProblem, projectOf, sourceJql, viewJql } from "./jql.ts";
 import {
   DEFAULT_PREFS,
   type AcliProblem,
@@ -17,7 +17,9 @@ import {
   type Me,
   type Person,
   type Prefs,
+  type ProjectLookup,
   type SavedView,
+  type Source,
   type Sprint,
   type Status,
   type TabAction,
@@ -44,18 +46,21 @@ const BLOCKING: AcliProblem["code"][] = ["not-installed", "not-signed-in"];
 interface ProjectMeta {
   name: string;
   issueTypes: IssueType[];
+  components: string[];
 }
 
 interface WorkspaceCache {
   candidates: Candidate[] | undefined;
   problem: AcliProblem | null;
   me: Me | null;
-  meta: ProjectMeta | null;
+  /** By project key. */
+  metas: Map<string, ProjectMeta>;
   lists: Map<string, ListResult>;
   counts: Record<string, number>;
   details: Map<string, DetailResult>;
   readAt: Map<string, number>;
-  statuses: Map<string, Status>;
+  /** By project key, then status name. */
+  statuses: Map<string, Map<string, Status>>;
   people: Map<string, Person>;
   sprints: Map<number, Sprint>;
   loading: Set<string>;
@@ -66,7 +71,7 @@ const emptyCache = (): WorkspaceCache => ({
   candidates: undefined,
   problem: null,
   me: null,
-  meta: null,
+  metas: new Map(),
   lists: new Map(),
   counts: {},
   details: new Map(),
@@ -90,8 +95,19 @@ class AcliFailed extends Error {
   }
 }
 
-const isConnection = (value: unknown): value is Connection =>
-  !!value && typeof value === "object" && ["site", "project", "projectName"].every((key) => typeof (value as Record<string, unknown>)[key] === "string");
+const isSource = (value: unknown): value is Source =>
+  !!value && typeof value === "object" && ["name", "project", "projectName", "filter"].every((key) => typeof (value as Record<string, unknown>)[key] === "string");
+
+/** A stored connection, from before sources too, which had none. */
+const connectionFrom = (value: unknown): Connection | null => {
+  if (!value || typeof value !== "object") return null;
+  const stored = value as Record<string, unknown>;
+  if (!["site", "project", "projectName"].every((key) => typeof stored[key] === "string")) return null;
+  const sources = Array.isArray(stored.sources) ? stored.sources.filter(isSource) : [];
+  return { site: stored.site as string, project: stored.project as string, projectName: stored.projectName as string, sources };
+};
+
+const byCategory = (statuses: Iterable<Status>) => [...statuses].sort((a, b) => CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category]);
 
 const prefsOf = (value: unknown): Prefs => ({ ...DEFAULT_PREFS, ...(value && typeof value === "object" ? (value as Partial<Prefs>) : {}) });
 
@@ -136,8 +152,7 @@ export class JiraTab implements WorkspaceTab<TabState> {
   }
 
   private connectionOf(context: WorkspaceTabContext): Connection | null {
-    const stored = context.storage.get("connection");
-    return isConnection(stored) ? stored : null;
+    return connectionFrom(context.storage.get("connection"));
   }
 
   /** Connected, or a git folder whose history names issue keys: other folders don't get a Jira tab. */
@@ -160,10 +175,10 @@ export class JiraTab implements WorkspaceTab<TabState> {
       lists: Object.fromEntries(cache.lists),
       counts: cache.counts,
       details: Object.fromEntries(cache.details),
-      statuses: [...cache.statuses.values()].sort((a, b) => CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category]),
+      statuses: Object.fromEntries([...cache.statuses].map(([project, statuses]) => [project, byCategory(statuses.values())])),
       people: [...cache.people.values()].sort((a, b) => a.name.localeCompare(b.name)),
       sprints: [...cache.sprints.values()].sort((a, b) => SPRINT_ORDER[a.state] - SPRINT_ORDER[b.state] || (a.endDate ?? "").localeCompare(b.endDate ?? "")),
-      issueTypes: cache.meta?.issueTypes ?? [],
+      issueTypes: Object.fromEntries([...cache.metas].map(([project, meta]) => [project, meta.issueTypes])),
       savedViews: savedViewsOf(context.storage.get("savedViews")),
       prefs: prefsOf(context.storage.get("prefs")),
       loading: [...cache.loading],
@@ -201,6 +216,18 @@ export class JiraTab implements WorkspaceTab<TabState> {
         return null;
       case "undo":
         return this.undo(context, asked.undo);
+      case "look-up-project":
+        return this.lookUpProject(context, asked.project);
+      case "add-source":
+        return this.addSource(context, asked.name, asked.project, asked.filter);
+      case "remove-source": {
+        const connection = this.connected(context);
+        context.storage.set("connection", { ...connection, sources: connection.sources.filter(({ name }) => name !== asked.name) } satisfies Connection);
+        this.cacheOf(context).counts = {};
+        context.changed();
+        void this.fetchCounts(context, true).catch(() => {});
+        return null;
+      }
       case "transition":
       case "assign":
       case "labels":
@@ -311,17 +338,65 @@ export class JiraTab implements WorkspaceTab<TabState> {
       if (BLOCKING.includes(error.problem.code)) throw new Error(error.problem.message);
       throw new Error(`Jira has no project ${project} on ${auth.site.replace(/^https:\/\//, "")} that your account can see. acli said: ${error.problem.message}`);
     }
-    cache.meta = meta;
+    cache.metas.set(project, meta);
     cache.me = { email: auth.email, accountId: null };
-    context.storage.set("connection", { site: auth.site, project, projectName: meta.name } satisfies Connection);
+    context.storage.set("connection", { site: auth.site, project, projectName: meta.name, sources: [] } satisfies Connection);
     context.changed();
     return { connected: project };
   }
 
   private async fetchMeta(context: WorkspaceTabContext, project: string): Promise<ProjectMeta> {
     const about = await this.acliJson<Record<string, unknown>>(context, projectArgs(project));
-    const types = Array.isArray(about.issueTypes) ? (about.issueTypes as Record<string, unknown>[]) : [];
-    return { name: typeof about.name === "string" ? about.name : project, issueTypes: types.filter(({ name }) => typeof name === "string").map(({ name, subtask }) => ({ name: name as string, subtask: subtask === true })) };
+    const named = (list: unknown) => (Array.isArray(list) ? (list as Record<string, unknown>[]) : []).filter(({ name }) => typeof name === "string");
+    return {
+      name: typeof about.name === "string" ? about.name : project,
+      issueTypes: named(about.issueTypes).map(({ name, subtask }) => ({ name: name as string, subtask: subtask === true })),
+      components: named(about.components)
+        .map(({ name }) => name as string)
+        .sort((a, b) => a.localeCompare(b)),
+    };
+  }
+
+  /** A project's name and components, for adding it as a source; its issue types join New's picker. */
+  private async lookUpProject(context: WorkspaceTabContext, typed: string): Promise<ProjectLookup> {
+    const connection = this.connected(context);
+    const project = typed.trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]*$/.test(project)) throw new Error(`"${typed}" isn't a Jira project key: it's the letters before the dash in an issue's key.`);
+    try {
+      const meta = await this.fetchMeta(context, project);
+      this.cacheOf(context).metas.set(project, meta);
+      return { project, name: meta.name, components: meta.components };
+    } catch (error) {
+      if (!(error instanceof AcliFailed)) throw error;
+      if (BLOCKING.includes(error.problem.code)) throw new Error(error.problem.message);
+      throw new Error(`Jira has no project ${project} on ${connection.site.replace(/^https:\/\//, "")} that your account can see.`);
+    }
+  }
+
+  /** Adds a source once Jira reads its filter, so a typo shows now in Jira's words, not later as an empty view. */
+  private async addSource(context: WorkspaceTabContext, typedName: string, typedProject: string, typedFilter: string) {
+    const connection = this.connected(context);
+    const name = typedName.trim();
+    const filter = typedFilter.trim();
+    if (!name) throw new Error("Give the source's view a name.");
+    const taken = [...BUILT_IN_VIEWS.map((view) => view.name), ...connection.sources.map((source) => source.name), ...savedViewsOf(context.storage.get("savedViews")).map((view) => view.name)];
+    if (taken.some((each) => each.toLowerCase() === name.toLowerCase())) throw new Error(`There's a view called "${name}" already; pick another name.`);
+    const problem = filterProblem(filter);
+    if (problem) throw new Error(problem);
+    const { project, name: projectName } = await this.lookUpProject(context, typedProject);
+    const source: Source = { name, project, projectName, filter };
+    let found: number | null;
+    try {
+      found = countOf(await this.acli(context, countArgs(sourceJql({ project, filter }))));
+    } catch (error) {
+      if (error instanceof AcliFailed) throw new Error(`Jira can't read that filter: ${error.problem.message}`);
+      throw error;
+    }
+    context.storage.set("connection", { ...connection, sources: [...connection.sources, source] } satisfies Connection);
+    this.cacheOf(context).counts = {};
+    context.changed();
+    void this.fetchCounts(context, true).catch(() => {});
+    return { added: name, found };
   }
 
   /**
@@ -331,20 +406,24 @@ export class JiraTab implements WorkspaceTab<TabState> {
   private async refresh(context: WorkspaceTabContext, jql: string, counts: boolean, gap = MIN_READ_GAP_MS, force = false) {
     const connection = this.connected(context);
     const cache = this.cacheOf(context);
-    const recent = viewJql("recent", connection.project, null, []);
+    const recent = viewJql("recent", connection, null, []);
     await Promise.allSettled([
       this.fetchList(context, jql, force, gap),
       counts && this.fetchCounts(context),
       jql !== recent && !cache.lists.has(recent) && this.fetchList(context, recent),
       !cache.me && this.once(context, "me", async () => void (cache.me = { email: (await this.whoAmI(context)).email, accountId: null })),
-      !cache.meta && this.once(context, "meta", async () => void (cache.meta = await this.fetchMeta(context, connection.project))),
+      ...[connection.project, ...connection.sources.map(({ project }) => project)]
+        .filter((project) => !cache.metas.has(project))
+        .map((project) => this.once(context, `meta:${project}`, async () => void cache.metas.set(project, await this.fetchMeta(context, project)))),
     ]);
   }
 
   private learn(context: WorkspaceTabContext, issues: Issue[], jql: string) {
     const cache = this.cacheOf(context);
     issues.forEach((issue) => {
-      cache.statuses.set(issue.status.name, issue.status);
+      const project = projectOf(issue.key);
+      if (!cache.statuses.has(project)) cache.statuses.set(project, new Map());
+      cache.statuses.get(project)!.set(issue.status.name, issue.status);
       [issue.assignee, issue.reporter].forEach((person) => person && cache.people.set(person.accountId, person));
     });
     const me = cache.me;
@@ -382,7 +461,7 @@ export class JiraTab implements WorkspaceTab<TabState> {
     const cache = this.cacheOf(context);
     const prefs = prefsOf(context.storage.get("prefs"));
     const saved = savedViewsOf(context.storage.get("savedViews"));
-    const queries = [...BUILT_IN_VIEWS.map(({ id }) => id), ...saved.map(({ name }) => `saved:${name}` as const)].map((view) => viewJql(view, connection.project, prefs.sprint, saved));
+    const queries = allViews(connection, saved).map(({ id }) => viewJql(id, connection, prefs.sprint, saved));
     return this.once(
       context,
       "counts",
@@ -469,6 +548,7 @@ export class JiraTab implements WorkspaceTab<TabState> {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("Give the view a name.");
     if (BUILT_IN_VIEWS.some((view) => view.name.toLowerCase() === trimmed.toLowerCase())) throw new Error(`"${trimmed}" is one of the built-in views; pick another name.`);
+    if (this.connectionOf(context)?.sources.some((source) => source.name.toLowerCase() === trimmed.toLowerCase())) throw new Error(`"${trimmed}" is a source's view; pick another name.`);
     const others = savedViewsOf(context.storage.get("savedViews")).filter((view) => view.name.toLowerCase() !== trimmed.toLowerCase());
     context.storage.set("savedViews", [...others, { name: trimmed, jql: jql.trim() }]);
     context.changed();
@@ -506,7 +586,7 @@ export class JiraTab implements WorkspaceTab<TabState> {
   private applyAtOnce(context: WorkspaceTabContext, action: WriteAction) {
     const cache = this.cacheOf(context);
     const change = (issue: Issue) => {
-      if (action.kind === "transition") issue.status = cache.statuses.get(action.status) ?? { name: action.status, category: issue.status.category };
+      if (action.kind === "transition") issue.status = cache.statuses.get(projectOf(issue.key))?.get(action.status) ?? { name: action.status, category: issue.status.category };
       if (action.kind === "assign") issue.assignee = action.to;
       if (action.kind === "labels") issue.labels = [...issue.labels.filter((label) => !action.remove.includes(label)), ...action.add.filter((label) => !issue.labels.includes(label))];
       if (action.kind === "summary") issue.summary = action.summary;
@@ -545,7 +625,8 @@ export class JiraTab implements WorkspaceTab<TabState> {
   private async write(context: WorkspaceTabContext, action: WriteAction): Promise<WriteReply> {
     const connection = this.connected(context);
     if (action.kind === "transition" && !action.status.trim()) throw new Error("Pick a status.");
-    if (action.kind === "create" && action.project !== connection.project) throw new Error(`This workspace is connected to ${connection.project}.`);
+    const projects = [connection.project, ...connection.sources.map(({ project }) => project)];
+    if (action.kind === "create" && !projects.includes(action.project)) throw new Error(`This workspace takes in ${projects.join(" and ")}, not ${action.project}.`);
     const undo = this.undoFor(context, action);
     const output = await this.runWrite(context, action);
     this.applyAtOnce(context, action);
