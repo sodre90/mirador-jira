@@ -69,8 +69,8 @@ export function TopBar() {
           Save as a view
         </button>
       )}
-      <span className="live" aria-live="polite">
-        {loading ? <Spinner /> : <i className={list?.problem ? "off" : ""} />} {list?.problem ? "Couldn't read Jira" : updatedText(list?.fetchedAt ?? null, now)}
+      <span className={`live ${list?.problem ? "off" : ""}`} aria-live="polite">
+        {loading ? <Spinner /> : <i />} {list?.problem ? "Couldn't read Jira" : updatedText(list?.fetchedAt ?? null, now)}
       </span>
       <span className="spacer" />
       <button type="button" className="button primary" data-hint="New issue (n)" onClick={() => tab.showSheet({ kind: "create", parent: null })}>

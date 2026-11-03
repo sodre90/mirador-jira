@@ -85,6 +85,20 @@ test("a workspace connects to its Jira project, and its issues are found, read, 
     await expect(rows(page)).toHaveCount(2);
   });
 
+  await test.step("a search Jira can't read says so, and the dot beside it turns red", async () => {
+    const search = tab(page).locator("#jira-search");
+    const dot = tab(page).locator(".live i");
+    const readColor = await dot.evaluate((element) => getComputedStyle(element).backgroundColor);
+    await search.fill("labels = sync AND (");
+    await search.press("Enter");
+    await expect(tab(page).locator(".problem-line")).toContainText("Jira can't read this JQL");
+    await expect(tab(page).locator(".live")).toContainText("Couldn't read Jira");
+    await expect.poll(() => dot.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(readColor);
+    await search.press("Escape");
+    await expect(rows(page)).toHaveCount(2);
+    await expect.poll(() => dot.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(readColor);
+  });
+
   await test.step("an issue opens with its description, links and comments", async () => {
     await row(page, "KITE-412").click();
     await expect(detail(page).getByRole("heading", { name: "Notes vanish after renaming a folder" })).toBeVisible();

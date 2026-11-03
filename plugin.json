@@ -2,7 +2,7 @@
   "name": "jira",
   "title": "Jira",
   "icon": "icon.svg",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "api": 7,
   "canvas": { "host": "host.ts", "view": "dist/view.js" },
   "build": "bun install --frozen-lockfile && bun run build"
