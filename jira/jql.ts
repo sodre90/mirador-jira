@@ -96,6 +96,13 @@ export function allViews(scope: Scope, saved: SavedView[]): { id: ViewId; name: 
 /** The project an issue key belongs to. */
 export const projectOf = (key: string) => key.replace(/-\d+$/, "");
 
+/** The name of the project an issue belongs to, as the workspace took it in; its key for a project outside it. */
+export function projectNameOf(issueKey: string, { project: own, projectName, sources }: Pick<Connection, "project" | "projectName" | "sources">): string {
+  const key = projectOf(issueKey);
+  if (key === own) return projectName;
+  return sources.find(({ project }) => project === key)?.projectName ?? key;
+}
+
 export const ISSUE_KEY = /\b([A-Z][A-Z0-9_]+-\d+)\b/;
 
 const JQL_SIGNS = /(\s(=|!=|~|!~|>=?|<=?|in|not in|is|is not|was|changed)\s)|\border by\b|\(\)/i;

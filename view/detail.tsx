@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { adfToMarkdown, editableAsMarkdown } from "../jira/adf.ts";
-import { childrenJql, projectOf } from "../jira/jql.ts";
+import { childrenJql, projectNameOf, projectOf } from "../jira/jql.ts";
 import { issueUrl, mentionText, planText, workText } from "../jira/handoff.ts";
 import type { Comment, Detail as DetailData, Issue, Link, Related, WriteAction } from "../jira/model.ts";
 import { failureText, keyWithSummary, send, useTab } from "./bridge.ts";
@@ -380,7 +380,7 @@ export function Detail({ issueKey }: { issueKey: string }) {
               {detail.parent.key} {detail.parent.summary} ›
             </button>
           ) : (
-            <span>{tab.connection.projectName}</span>
+            <span>{projectNameOf(issue.key, tab.connection)}</span>
           )}
         </nav>
         <button type="button" className="icon-button" aria-label="Close the issue's panel" data-hint="Close (Esc)" onClick={() => tab.select(null)}>

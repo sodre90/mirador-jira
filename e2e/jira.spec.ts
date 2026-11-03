@@ -183,6 +183,9 @@ test("a workspace connects to its Jira project, and its issues are found, read, 
     await expect(row(page, "SUP-21")).toBeVisible();
     await expect(row(page, "KITE-412")).toBeVisible();
     await expect(row(page, "SUP-22")).toHaveCount(0);
+    await row(page, "SUP-21").click();
+    await expect(detail(page).locator(".crumbs")).toHaveText("Kite support");
+    await detail(page).getByRole("button", { name: "Close the issue's panel" }).click();
   });
 
   await test.step("Mine sorts by priority, and keeps that order when it's shown again", async () => {

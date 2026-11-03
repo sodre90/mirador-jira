@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { FILE, problemOf, shellText, writePlan } from "../jira/acli.ts";
 import { adfToMarkdown, adfToText, editableAsMarkdown, markdownToAdf, type AdfNode } from "../jira/adf.ts";
 import { candidatesOf } from "../jira/detect.ts";
-import { componentFilter, filterProblem, ownSort, scopeJql, searchJql, viewJql, viewShown } from "../jira/jql.ts";
+import { componentFilter, filterProblem, ownSort, projectNameOf, scopeJql, searchJql, viewJql, viewShown } from "../jira/jql.ts";
 import { priorityLevel } from "../view/format.ts";
 import { detailOf, issueOf } from "../jira/normalize.ts";
 import { FakeJira } from "./fake-acli.ts";
@@ -112,6 +112,11 @@ describe("acli's answers", () => {
 describe("sources", () => {
   const ESCALATIONS = { name: "Escalations", project: "SUP", projectName: "Kite support", filter: componentFilter("Kite") };
   const WITH_SUP = { project: "KITE", sources: [ESCALATIONS] };
+
+  test("an issue's project is named as the workspace took it in, and by its key outside it", () => {
+    const connection = { ...WITH_SUP, projectName: "Kite" };
+    expect(["KITE-412", "SUP-21", "OPS-7"].map((key) => projectNameOf(key, connection))).toEqual(["Kite", "Kite support", "OPS"]);
+  });
 
   test("every view searches the workspace's project and each source in parentheses of its own", () => {
     expect(scopeJql(WITH_SUP)).toBe('((project = KITE) OR (project = SUP AND (component = "Kite")))');
