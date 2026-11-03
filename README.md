@@ -5,10 +5,10 @@ A [Mirador](https://github.com/sodre90/mirador) plugin: a workspace's Jira proje
 ![The sprint as a board of its statuses](docs/sprint.png)
 
 - **Connects by itself.** The tab reads the issue keys in the workspace's branches and commits, offers the project they name most, and connects once you confirm.
-- **Views.** Mine (my open issues), Sprint, Recent, Reported and Watching, each with its count, and any search saved as a view of your own.
+- **Views.** Mine (my open issues), Sprint, Recent, Reported and Watching, each with its count, and any search saved as a view of your own. Put a list in order of priority, last update or age; each view keeps its order.
 - **More than one project.** Take in another project's issues too, whole or only those of one component or a JQL filter, such as a support project's escalations about your product. Mine, Recent, Reported and Watching span them all, and each added source has a view of its own. Add them in ⋯ → Sources.
 - **Search.** Words search the text, a key finds that issue, and JQL goes to Jira as written. Jira's own words show when it can't read the JQL.
-- **Sprint board.** The active sprint of your issues, or any open sprint, as columns of its statuses. Drop a card on a column to move it there, or switch to a list.
+- **Sprint board.** The active sprint of your issues, or any open sprint, as columns of its statuses, a status with no cards folded to a strip. Drop a card on a column or strip to move it there, or switch to a list.
 - **Detail beside the list.** Status, assignee and labels change from their pickers. The description renders Jira's rich text, and edits as Markdown when it can come back unchanged; otherwise it opens in Jira. Links show the parent, sub-tasks, linked issues and an epic's children. Activity shows the comments, and you comment in Markdown.
 - **Your own small changes at once, with Undo.** A status, assigning yourself or a label takes effect as you click, with Undo in the toast. Undo won't overwrite a change someone made since.
 - **Asks first when others would be told.** Comments, a new summary or description, assigning someone else, and new issues show the `acli` command they run and wait for you.

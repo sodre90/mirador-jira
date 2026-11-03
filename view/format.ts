@@ -42,3 +42,23 @@ export function agoText(iso: string | number | null, now = Date.now()): string {
   if (short === "now") return "just now";
   return /\d$/.test(short) || /[a-z]{3}/i.test(short) ? `on ${short}` : short ? `${short} ago` : "";
 }
+
+export type PriorityLevel = "highest" | "high" | "medium" | "low" | "lowest";
+
+const NUMBERED_LEVELS: PriorityLevel[] = ["highest", "highest", "high", "medium", "low", "lowest"];
+
+const PRIORITY_WORDS: [PriorityLevel, RegExp][] = [
+  ["lowest", /lowest|trivial/],
+  ["highest", /highest|blocker|critical|immediate|urgent|emergency/],
+  ["high", /high|major|must/],
+  ["low", /low|minor/],
+  ["medium", /medium|normal|moderate/],
+];
+
+/** Sites name their priorities as they like, such as "P2 - Degraded" or "Must have", so the level comes from its number, else the words in the name. */
+export function priorityLevel(name: string): PriorityLevel | null {
+  const text = name.toLowerCase();
+  const numbered = /\bp([0-5])\b/.exec(text)?.[1];
+  if (numbered) return NUMBERED_LEVELS[Number(numbered)]!;
+  return PRIORITY_WORDS.find(([, words]) => words.test(text))?.[0] ?? null;
+}

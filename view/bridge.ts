@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { Connection, Detail, Issue, Person, TabAction, TabState, Undo, ViewId, WriteAction, WriteReply } from "../jira/model.ts";
+import type { Connection, Detail, Issue, Person, Sort, TabAction, TabState, Undo, ViewId, WriteAction, WriteReply } from "../jira/model.ts";
 import type { PluginViewBridge } from "../mirador/api.ts";
 
 declare global {
@@ -31,6 +31,9 @@ export interface Tab {
   /** What the search box holds; empty for the view's own query. */
   typed: string;
   search(typed: string): void;
+  /** The order the list is in; null when the view can't be put in another. */
+  sort: Sort | null;
+  setSort(sort: Sort): void;
   selected: Issue | null;
   select(key: string | null): void;
   showSheet(sheet: Sheet | null): void;

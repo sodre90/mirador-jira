@@ -1,4 +1,4 @@
-import type { Connection, SavedView, Source, ViewId } from "./model.ts";
+import type { Connection, SavedView, Sort, Source, ViewId } from "./model.ts";
 
 export interface BuiltInView {
   id: Exclude<ViewId, `saved:${string}` | `source:${string}`>;
@@ -45,23 +45,40 @@ export function viewShown(view: ViewId, { sources }: Scope, saved: SavedView[]):
   return view;
 }
 
-export function viewJql(view: ViewId, scope: Scope, sprint: number | null, saved: SavedView[]): string {
+export const SORTS: { id: Sort; name: string }[] = [
+  { id: "updated", name: "Last updated" },
+  { id: "priority", name: "Priority" },
+  { id: "created", name: "Newest" },
+];
+
+const ORDER_BY: Record<Sort, string> = { updated: "updated DESC", priority: "priority DESC, updated DESC", created: "created DESC" };
+
+/** The order a view lists in until the user picks another; null for views whose order is their point, or their JQL's. */
+export function ownSort(view: ViewId): Sort | null {
+  if (view === "mine" || view === "watching" || view.startsWith("source:")) return "updated";
+  if (view === "reported") return "created";
+  return null;
+}
+
+/** A view's JQL, in the order picked for it. Counts are read and keyed in each view's own order, which doesn't change them. */
+export function viewJql(view: ViewId, scope: Scope, sprint: number | null, saved: SavedView[], sort: Sort | null = null): string {
   const inScope = scopeJql(scope);
   const shown = viewShown(view, scope, saved);
+  const orderBy = `ORDER BY ${ORDER_BY[sort ?? ownSort(shown) ?? "updated"]}`;
   switch (shown) {
     case "mine":
-      return `${inScope} AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`;
+      return `${inScope} AND assignee = currentUser() AND statusCategory != Done ${orderBy}`;
     case "sprint":
       return `project = ${project(scope.project)} AND ${sprint === null ? "sprint in openSprints()" : `sprint = ${sprint}`} ORDER BY Rank ASC`;
     case "recent":
       return `${inScope} ORDER BY updated DESC`;
     case "reported":
-      return `${inScope} AND reporter = currentUser() AND statusCategory != Done ORDER BY created DESC`;
+      return `${inScope} AND reporter = currentUser() AND statusCategory != Done ${orderBy}`;
     case "watching":
-      return `${inScope} AND watcher = currentUser() AND statusCategory != Done ORDER BY updated DESC`;
+      return `${inScope} AND watcher = currentUser() AND statusCategory != Done ${orderBy}`;
     default: {
       const source = scope.sources.find(({ name }) => `source:${name}` === shown);
-      if (source) return `${sourceJql(source)} ORDER BY updated DESC`;
+      if (source) return `${sourceJql(source)} ${orderBy}`;
       return saved.find(({ name }) => `saved:${name}` === shown)!.jql;
     }
   }

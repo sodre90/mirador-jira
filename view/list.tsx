@@ -1,6 +1,8 @@
-import type { Issue } from "../jira/model.ts";
+import { SORTS } from "../jira/jql.ts";
+import type { Issue, Sort } from "../jira/model.ts";
 import { useTab } from "./bridge.ts";
 import { Avatar, Labels, PriorityMark, Spinner, StatusLozenge, TypeBadge } from "./icons.tsx";
+import { PickList, Popover } from "./popover.tsx";
 
 function Row({ issue }: { issue: Issue }) {
   const tab = useTab();
@@ -34,6 +36,27 @@ export function IssueList({ issues }: { issues: Issue[] }) {
   );
 }
 
+function SortBar({ sort }: { sort: Sort }) {
+  const tab = useTab();
+  return (
+    <div className="sort-bar">
+      <Popover className="chip" label={<>Sort: {SORTS.find(({ id }) => id === sort)?.name} ▾</>} hint="Put the list in another order">
+        {(close) => (
+          <PickList
+            multiple={false}
+            options={SORTS.map(({ id, name }) => ({ value: id, text: name }))}
+            chosen={[sort]}
+            onChange={([value]) => {
+              close();
+              if (value) tab.setSort(value as Sort);
+            }}
+          />
+        )}
+      </Popover>
+    </div>
+  );
+}
+
 /** The list a view's JQL finds, with what to say while it loads, when it's empty and when Jira refused the query. */
 export function ListView() {
   const tab = useTab();
@@ -47,6 +70,7 @@ export function ListView() {
   }
   return (
     <>
+      {tab.sort && <SortBar sort={tab.sort} />}
       {list.problem && (
         <p className="problem-line">
           ⚠ {list.problem.code === "bad-query" ? "Jira can't read this JQL: " : ""}

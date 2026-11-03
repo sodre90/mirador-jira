@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { FILE, problemOf, shellText, writePlan } from "../jira/acli.ts";
 import { adfToMarkdown, adfToText, editableAsMarkdown, markdownToAdf, type AdfNode } from "../jira/adf.ts";
 import { candidatesOf } from "../jira/detect.ts";
-import { componentFilter, filterProblem, scopeJql, searchJql, viewJql, viewShown } from "../jira/jql.ts";
+import { componentFilter, filterProblem, ownSort, scopeJql, searchJql, viewJql, viewShown } from "../jira/jql.ts";
+import { priorityLevel } from "../view/format.ts";
 import { detailOf, issueOf } from "../jira/normalize.ts";
 import { FakeJira } from "./fake-acli.ts";
 
@@ -46,6 +47,21 @@ describe("JQL", () => {
     expect(viewJql("sprint", KITE_ONLY, 7007, [])).toBe("project = KITE AND sprint = 7007 ORDER BY Rank ASC");
     expect(viewJql("sprint", KITE_ONLY, null, [])).toBe("project = KITE AND sprint in openSprints() ORDER BY Rank ASC");
     expect(viewJql("saved:Sync bugs", KITE_ONLY, null, [{ name: "Sync bugs", jql: "project = KITE AND labels = sync" }])).toBe("project = KITE AND labels = sync");
+  });
+
+  test("a list view keeps the order picked for it, and the sprint, Recent and saved views keep their own", () => {
+    expect(viewJql("mine", KITE_ONLY, null, [], "priority")).toBe("project = KITE AND assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC, updated DESC");
+    expect(viewJql("reported", KITE_ONLY, null, [])).toEndWith("ORDER BY created DESC");
+    expect(viewJql("reported", KITE_ONLY, null, [], "updated")).toEndWith("ORDER BY updated DESC");
+    expect(viewJql("sprint", KITE_ONLY, null, [], "priority")).toEndWith("ORDER BY Rank ASC");
+    expect(viewJql("recent", KITE_ONLY, null, [], "priority")).toEndWith("ORDER BY updated DESC");
+    expect(viewJql("saved:Sync", KITE_ONLY, null, [{ name: "Sync", jql: "labels = sync" }], "priority")).toBe("labels = sync");
+    expect([ownSort("mine"), ownSort("reported"), ownSort("source:Escalations"), ownSort("sprint"), ownSort("recent"), ownSort("saved:Sync")]).toEqual(["updated", "created", "updated", null, null, null]);
+  });
+
+  test("a priority's level comes from the words a site names it with", () => {
+    const levels = ["Highest", "Blocker", "Urgent", "P1 - Outage", "Must have", "P2 - Degraded", "Medium", "P3 - Minor", "Minor", "Trivial", "Whenever"].map(priorityLevel);
+    expect(levels).toEqual(["highest", "highest", "highest", "highest", "high", "high", "medium", "medium", "low", "lowest", null]);
   });
 
   test("the search box takes JQL as written, an issue by its key, or words", () => {

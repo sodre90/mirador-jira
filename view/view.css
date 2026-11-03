@@ -670,13 +670,6 @@ h2 {
   gap: 6px;
 }
 
-.column-empty {
-  color: var(--faint);
-  font-size: 0.9em;
-  padding: 10px 4px;
-  text-align: center;
-}
-
 .drop {
   border: 1px dashed var(--accent);
   border-radius: 6px;
@@ -1579,6 +1572,11 @@ pre.jql {
   margin: 0 -12px;
 }
 
+.sort-bar {
+  display: flex;
+  padding: 8px 12px 2px;
+}
+
 .sprint-bar {
   display: flex;
   align-items: center;
@@ -1748,11 +1746,27 @@ ul.list {
 
 .sprint .board,
 .narrow .sprint .board {
-  grid-template-columns: none;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(165px, 1fr);
   overflow-x: auto;
   padding-bottom: 4px;
+}
+
+.column.folded {
+  align-self: stretch;
+  min-height: 160px;
+  padding: 8px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.column.folded h3 {
+  writing-mode: vertical-rl;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .fix {

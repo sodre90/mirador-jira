@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { allViews, searchJql, viewJql, viewShown } from "../jira/jql.ts";
+import { allViews, ownSort, searchJql, viewJql, viewShown } from "../jira/jql.ts";
 import { DEFAULT_PREFS, type Issue, type Person, type Prefs, type TabState, type Undo, type ViewId, type WriteAction, type WriteReply } from "../jira/model.ts";
 import { failureText, keyWithSummary, send, TabContext, type Sheet, type Tab } from "./bridge.ts";
 import { SprintView } from "./board.tsx";
@@ -149,7 +149,9 @@ function App() {
   const connection = state?.connection ?? null;
   const prefs = prefsHere ?? state?.prefs ?? DEFAULT_PREFS;
   const view = connection && state ? viewShown(prefs.view, connection, state.savedViews) : prefs.view;
-  const jql = connection && state ? (prefs.search.trim() ? searchJql(prefs.search, connection) : viewJql(view, connection, prefs.sprint, state.savedViews)) : null;
+  const searching = !!prefs.search.trim();
+  const sort = searching ? null : (prefs.sorts[view] ?? ownSort(view));
+  const jql = connection && state ? (searching ? searchJql(prefs.search, connection) : viewJql(view, connection, prefs.sprint, state.savedViews, sort)) : null;
   useReading(jql);
   useOpening(selectedKey);
   useSprintsWhenShown(connection ? view : null);
@@ -176,6 +178,8 @@ function App() {
       jql,
       typed: prefs.search,
       search: (typed) => setPrefs({ ...prefs, search: typed.trim() }),
+      sort,
+      setSort: (next) => setPrefs({ ...prefs, sorts: { ...prefs.sorts, [view]: next } }),
       selected,
       select: setSelectedKey,
       showSheet: setSheet,
@@ -194,7 +198,7 @@ function App() {
       narrow,
       isMe: (person: Person | null) => !!person && !!me && (person.accountId === me.accountId || (!!me.email && person.email?.toLowerCase() === me.email.toLowerCase())),
     };
-  }, [state, connection, jql, view, prefs, selectedKey, selected, narrow]);
+  }, [state, connection, jql, view, sort, prefs, selectedKey, selected, narrow]);
 
   useKeys(tab, sheet !== null);
 

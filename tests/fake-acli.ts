@@ -2,6 +2,15 @@ import { readFileSync } from "node:fs";
 import type { Ran, Runner } from "../jira/run.ts";
 import { DANA, ISSUE_TYPES, ISSUES, ME, PROJECT, SITE, SPRINT_7, SPRINT_8, STATUSES, SUPPORT, SUPPORT_ISSUES, WORKFLOW, type FakeIssue, type FakePerson } from "./fixtures/jira.ts";
 
+/** Jira's own priorities, highest first: ORDER BY priority DESC puts them in this order. */
+const PRIORITY_ORDER = ["Highest", "High", "Medium", "Low", "Lowest"];
+
+const ORDERINGS: Record<string, (a: FakeIssue, b: FakeIssue) => number> = {
+  updated: (a, b) => b.updated.localeCompare(a.updated),
+  created: (a, b) => b.created.localeCompare(a.created),
+  priority: (a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority),
+};
+
 /** What search lets through, as the real acli does: it refuses any other field. */
 const SEARCH_FIELDS = new Set(["issuetype", "key", "summary", "status", "priority", "assignee", "reporter", "labels", "description"]);
 
@@ -165,9 +174,12 @@ export class FakeJira {
     if (typeof matches === "string") return matches;
     if (at < tokens.length) return `failed to parse JQL query: unexpected '${tokens[at]}'.`;
     const found = this.state.issues.filter(matches);
-    if (/updated/i.test(order)) found.sort((a, b) => b.updated.localeCompare(a.updated));
-    if (/created/i.test(order)) found.sort((a, b) => b.created.localeCompare(a.created));
-    return found;
+    const orderings = order
+      .split(",")
+      .map((part) => part.trim().split(/\s+/)[0]?.toLowerCase() ?? "")
+      .filter(Boolean)
+      .map((field) => ORDERINGS[field] ?? (() => 0));
+    return found.sort((a, b) => orderings.reduce((by, ordering) => by || ordering(a, b), 0));
   }
 
   private clause(text: string): Predicate | string {

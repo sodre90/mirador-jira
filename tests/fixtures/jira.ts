@@ -219,7 +219,7 @@ export const ISSUE_TYPES = [
 /** A second made-up project, Kite's support desk, whose escalations name the product they're about as a component. */
 export const SUPPORT = { key: "SUP", name: "Kite support", components: ["Billing", "Kite", "Sync"], issueTypes: [{ name: "Escalation", subtask: false }, { name: "Question", subtask: false }] };
 
-const escalation = (fields: Pick<FakeIssue, "key" | "summary" | "status" | "assignee" | "components" | "updated">): FakeIssue => ({
+const escalation = (fields: Pick<FakeIssue, "key" | "summary" | "status" | "assignee" | "components" | "updated"> & Partial<Pick<FakeIssue, "priority">>): FakeIssue => ({
   type: "Escalation",
   priority: "High",
   reporter: SAM,
@@ -235,7 +235,7 @@ const escalation = (fields: Pick<FakeIssue, "key" | "summary" | "status" | "assi
 });
 
 export const SUPPORT_ISSUES: FakeIssue[] = [
-  escalation({ key: "SUP-21", summary: "A customer's notes vanish after renaming a folder", status: STATUSES.waiting, assignee: DANA, components: ["Kite"], updated: "2026-11-02T12:00:00.000+0000" }),
+  escalation({ key: "SUP-21", summary: "A customer's notes vanish after renaming a folder", status: STATUSES.waiting, priority: "Low", assignee: DANA, components: ["Kite"], updated: "2026-11-02T12:00:00.000+0000" }),
   escalation({ key: "SUP-22", summary: "Refund a double charge", status: STATUSES.waiting, assignee: DANA, components: ["Billing"], updated: "2026-11-02T13:00:00.000+0000" }),
   escalation({ key: "SUP-23", summary: "Sync stalls on a hotel's wifi", status: STATUSES.progress, assignee: null, components: ["Kite"], updated: "2026-11-02T11:00:00.000+0000" }),
 ];

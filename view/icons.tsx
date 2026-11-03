@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Person, Status } from "../jira/model.ts";
-import { avatarOf } from "./format.ts";
+import { avatarOf, priorityLevel, type PriorityLevel } from "./format.ts";
 
 const TYPE_LOOKS: Record<string, { mark: string; color: string }> = {
   epic: { mark: "⚡", color: "#7f56d9" },
@@ -27,26 +27,14 @@ export function StatusLozenge({ status }: { status: Status }) {
   return <span className={`lozenge c-${status.category}`}>{status.name}</span>;
 }
 
-const PRIORITY_LOOKS: Record<string, { mark: string; className: string }> = {
-  highest: { mark: "⇈", className: "p-highest" },
-  blocker: { mark: "⇈", className: "p-highest" },
-  critical: { mark: "⇈", className: "p-highest" },
-  high: { mark: "↑", className: "p-high" },
-  major: { mark: "↑", className: "p-high" },
-  medium: { mark: "=", className: "p-medium" },
-  normal: { mark: "=", className: "p-medium" },
-  low: { mark: "↓", className: "p-low" },
-  minor: { mark: "↓", className: "p-low" },
-  lowest: { mark: "⇊", className: "p-lowest" },
-  trivial: { mark: "⇊", className: "p-lowest" },
-};
+const PRIORITY_MARKS: Record<PriorityLevel, string> = { highest: "⇈", high: "↑", medium: "=", low: "↓", lowest: "⇊" };
 
 export function PriorityMark({ priority }: { priority: string | null }) {
   if (!priority) return null;
-  const look = PRIORITY_LOOKS[priority.toLowerCase()] ?? { mark: "•", className: "p-medium" };
+  const level = priorityLevel(priority);
   return (
-    <span className={`priority ${look.className}`} title={`${priority} priority`} aria-label={`${priority} priority`} role="img">
-      {look.mark}
+    <span className={`priority p-${level ?? "medium"}`} title={`${priority} priority`} aria-label={`${priority} priority`} role="img">
+      {level ? PRIORITY_MARKS[level] : "•"}
     </span>
   );
 }

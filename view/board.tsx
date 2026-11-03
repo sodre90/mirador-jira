@@ -42,9 +42,10 @@ function Column({ status, issues }: { status: Status; issues: Issue[] }) {
     if (!issue || issue.status.name === status.name) return;
     void tab.edit({ kind: "transition", key, status: status.name }, `${keyWithSummary(issue)} is ${status.name}`);
   };
+  const folded = issues.length === 0;
   return (
     <section
-      className={`column c-${status.category} ${over ? "over" : ""}`}
+      className={["column", `c-${status.category}`, over && "over", folded && "folded"].filter(Boolean).join(" ")}
       aria-label={status.name}
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes(DRAGGED)) return;
@@ -58,16 +59,21 @@ function Column({ status, issues }: { status: Status; issues: Issue[] }) {
         if (key) moveHere(key);
       }}
     >
-      <h3>
-        <StatusLozenge status={status} /> <span className="count">{issues.length}</span>
-      </h3>
-      {over && <div className="drop">Move to {status.name}</div>}
-      <div className="cards">
-        {issues.map((issue) => (
-          <Card key={issue.key} issue={issue} />
-        ))}
-        {issues.length === 0 && <p className="column-empty">Nothing {status.name.toLowerCase()}.</p>}
-      </div>
+      {folded ? (
+        <h3 data-hint={`Nothing ${status.name.toLowerCase()}. Drop a card here to move it.`}>{status.name}</h3>
+      ) : (
+        <>
+          <h3>
+            <StatusLozenge status={status} /> <span className="count">{issues.length}</span>
+          </h3>
+          {over && <div className="drop">Move to {status.name}</div>}
+          <div className="cards">
+            {issues.map((issue) => (
+              <Card key={issue.key} issue={issue} />
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -118,22 +124,23 @@ function SprintBar() {
   );
 }
 
-/** The sprint as columns of its statuses, in Jira's order of categories; dropping a card moves it there. */
+/** The sprint as columns of its statuses, in Jira's order of categories, a status with no cards folded to a strip; dropping a card moves it there. */
 export function SprintView() {
   const tab = useTab();
   const list = tab.state.lists[tab.jql];
   const board = tab.state.prefs.layout === "board";
   const seen = new Map<string, Status>([...(tab.state.statuses[tab.connection.project] ?? []), ...(list?.issues ?? []).map(({ status }) => status)].map((status) => [status.name, status]));
   const statuses = [...seen.values()].sort((a, b) => CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category]);
+  const columns = statuses.map((status) => ({ status, issues: (list?.issues ?? []).filter((issue) => issue.status.name === status.name) }));
   return (
     <div className="sprint">
       <SprintBar />
-      {!board || !list || list.problem || tab.typed ? (
+      {!board || !list || list.problem || list.issues.length === 0 || tab.typed ? (
         <ListView />
       ) : (
-        <div className="board">
-          {statuses.map((status) => (
-            <Column key={status.name} status={status} issues={list.issues.filter((issue) => issue.status.name === status.name)} />
+        <div className="board" style={{ gridTemplateColumns: columns.map(({ issues }) => (issues.length ? "minmax(165px, 1fr)" : "34px")).join(" ") }}>
+          {columns.map(({ status, issues }) => (
+            <Column key={status.name} status={status} issues={issues} />
           ))}
         </div>
       )}

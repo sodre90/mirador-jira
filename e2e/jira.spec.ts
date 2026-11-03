@@ -185,16 +185,39 @@ test("a workspace connects to its Jira project, and its issues are found, read, 
     await expect(row(page, "SUP-22")).toHaveCount(0);
   });
 
+  await test.step("Mine sorts by priority, and keeps that order when it's shown again", async () => {
+    const keys = () => rows(page).evaluateAll((found) => found.map((each) => (each as HTMLElement).dataset.key));
+    await tab(page).getByRole("button", { name: "Sort: Last updated ▾" }).click();
+    await tab(page).getByRole("option", { name: "Priority" }).click();
+    await expect.poll(keys).toEqual(["KITE-412", "KITE-431", "KITE-421", "SUP-21"]);
+    await expect(row(page, "KITE-412").getByRole("img", { name: "High priority" })).toHaveText("↑");
+    await view(page, "Recent").click();
+    await expect(tab(page).locator(".sort-bar")).toHaveCount(0);
+    await view(page, "Mine").click();
+    await expect(tab(page).getByRole("button", { name: "Sort: Priority ▾" })).toBeVisible();
+    await expect.poll(keys).toEqual(["KITE-412", "KITE-431", "KITE-421", "SUP-21"]);
+    await expect(view(page, "Mine")).toContainText("4");
+  });
+
   await test.step("the Sprint view shows the active sprint as a board, and dropping a card moves it", async () => {
     await view(page, "Sprint").click();
     await expect(column(page, "Waiting for support")).toHaveCount(0);
     await expect(tab(page).locator(".sprint-bar")).toContainText("Kite sprint 7");
     await expect(column(page, "To Do").locator('.card[data-key="KITE-398"]')).toBeVisible();
     await expect(column(page, "In Review").locator('.card[data-key="KITE-377"]')).toBeVisible();
-    await shoot(page, "sprint");
     await card(page, "KITE-398").dragTo(column(page, "In Progress"));
     await expect(column(page, "In Progress").locator('.card[data-key="KITE-398"]')).toBeVisible();
     await expect.poll(() => jiraIssue("KITE-398")?.status.name).toBe("In Progress");
+  });
+
+  await test.step("a status with no cards folds to a strip, and a card dropped on it moves there", async () => {
+    await card(page, "KITE-377").dragTo(column(page, "In Progress"));
+    await expect(column(page, "In Review")).toHaveClass(/folded/);
+    expect((await column(page, "In Review").boundingBox())!.width).toBeLessThan(50);
+    await shoot(page, "sprint");
+    await card(page, "KITE-377").dragTo(column(page, "In Review"));
+    await expect(column(page, "In Review").locator('.card[data-key="KITE-377"]')).toBeVisible();
+    await expect.poll(() => jiraIssue("KITE-377")?.status.name).toBe("In Review");
   });
 
   await test.step("Work on this mentions the issue in the composer, or sends it to the conversation's agent", async () => {

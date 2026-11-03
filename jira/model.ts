@@ -150,9 +150,13 @@ export interface Prefs {
   /** The sprint the Sprint view shows; null for every open sprint. */
   sprint: number | null;
   layout: "board" | "list";
+  /** The order each list view was last put in, when it isn't the view's own. */
+  sorts: Partial<Record<ViewId, Sort>>;
 }
 
-export const DEFAULT_PREFS: Prefs = { view: "mine", search: "", sprint: null, layout: "board" };
+export type Sort = "updated" | "priority" | "created";
+
+export const DEFAULT_PREFS: Prefs = { view: "mine", search: "", sprint: null, layout: "board", sorts: {} };
 
 /** Everything the tab shows for one workspace. */
 export interface TabState {
