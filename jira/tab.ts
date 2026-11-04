@@ -29,6 +29,7 @@ import {
   type WriteReply,
 } from "./model.ts";
 import { authOf, detailOf, issueOf, type RawIssue } from "./normalize.ts";
+import { promptLevelOf, PROMPTS, withPrompt, type PromptOverrides } from "./prompts.ts";
 import { ProgramMissing, spawnRunner, type Ran, type Runner } from "./run.ts";
 
 /** Each list and detail is read at most this often, however many views ask: every read is a call to the company's Jira. */
@@ -109,6 +110,8 @@ const connectionFrom = (value: unknown): Connection | null => {
 
 const byCategory = (statuses: Iterable<Status>) => [...statuses].sort((a, b) => CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category]);
 
+const promptsOf = (context: WorkspaceTabContext): PromptOverrides => ({ workspace: promptLevelOf(context.storage.get("prompts")), every: promptLevelOf(context.sharedStorage.get("prompts")) });
+
 const prefsOf = (value: unknown): Prefs => ({ ...DEFAULT_PREFS, ...(value && typeof value === "object" ? (value as Partial<Prefs>) : {}) });
 
 const savedViewsOf = (value: unknown): SavedView[] => (Array.isArray(value) ? value.filter((view): view is SavedView => typeof view?.name === "string" && typeof view?.jql === "string") : []);
@@ -181,6 +184,7 @@ export class JiraTab implements WorkspaceTab<TabState> {
       issueTypes: Object.fromEntries([...cache.metas].map(([project, meta]) => [project, meta.issueTypes])),
       savedViews: savedViewsOf(context.storage.get("savedViews")),
       prefs: prefsOf(context.storage.get("prefs")),
+      prompts: promptsOf(context),
       loading: [...cache.loading],
     };
   }
@@ -201,6 +205,13 @@ export class JiraTab implements WorkspaceTab<TabState> {
       case "open":
         await this.fetchDetail(context, asked.key);
         return null;
+      case "set-prompt": {
+        if (!(asked.prompt in PROMPTS)) throw new Error(`The Jira tab has no message ${JSON.stringify(asked.prompt)}.`);
+        const storage = asked.scope === "every" ? context.sharedStorage : context.storage;
+        storage.set("prompts", withPrompt(promptsOf(context), asked.scope, asked.prompt, asked.text));
+        context.changed();
+        return null;
+      }
       case "prefs":
         context.storage.set("prefs", prefsOf(asked.prefs));
         context.changed();

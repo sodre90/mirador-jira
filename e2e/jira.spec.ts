@@ -216,6 +216,35 @@ test("a workspace connects to its Jira project, and its issues are found, read, 
     await expect(view(page, "Mine")).toContainText("4");
   });
 
+  await test.step("a workspace's own Work on this prompt is kept, and Edit the message first changes one message only", async () => {
+    const openPrompts = async () => {
+      await tab(page).locator(".top-bar").getByRole("button", { name: "More", exact: true }).click();
+      await tab(page).getByRole("button", { name: "Prompts for the agent…" }).click();
+    };
+    await openPrompts();
+    await expect(sheet(page).getByLabel("Prompt", { exact: true })).toHaveValue("work");
+    await sheet(page).getByLabel("Prompt text").fill("Fix {key} ({summary}) the Kite way.");
+    await sheet(page).getByRole("button", { name: "Save" }).click();
+    await expect(toast(page)).toHaveText("Saved the prompt");
+    await expect(sheet(page).locator(".sheet-about")).toContainText("This workspace uses this workspace's own text.");
+    await sheet(page).getByRole("button", { name: "Close" }).click();
+    await row(page, "KITE-421").click();
+    await detail(page).getByRole("button", { name: "More ways to hand it to the agent" }).click();
+    await detail(page).getByRole("button", { name: /Edit the message first/ }).click();
+    const message = sheet(page).getByLabel("Message", { exact: true });
+    await expect(message).toHaveValue("Fix KITE-421 (Search misses words with accents) the Kite way.");
+    await message.fill("Fix KITE-421 (Search misses words with accents) the Kite way. Tests first.");
+    await sheet(page).getByRole("button", { name: "Send to this conversation" }).click();
+    await expect.poll(agentSaw).toContain("the Kite way. Tests first.");
+    await expect(page.locator(".chat-header:visible .badge")).toHaveText("idle", { timeout: 60_000 });
+    await openPrompts();
+    await expect(sheet(page).getByLabel("Prompt text")).toHaveValue("Fix {key} ({summary}) the Kite way.");
+    await sheet(page).getByRole("button", { name: "Put back the built-in" }).click();
+    await expect(sheet(page).getByLabel("Prompt text")).toHaveValue(/Name the branch and the commits after \{key\}/);
+    await sheet(page).getByRole("button", { name: "Close" }).click();
+    await detail(page).getByRole("button", { name: "Close the issue's panel" }).click();
+  });
+
   await test.step("the line between the list and the issue's panel drags, moves with the arrow keys, and keeps its place", async () => {
     await view(page, "Mine").click();
     await row(page, "KITE-412").click();

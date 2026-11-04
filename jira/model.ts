@@ -1,4 +1,5 @@
 import type { AdfNode } from "./adf.ts";
+import type { PromptKind, PromptOverrides, PromptScope } from "./prompts.ts";
 
 /** Jira's three status categories, which every workflow's statuses fall in. */
 export type StatusCategory = "new" | "indeterminate" | "done";
@@ -182,6 +183,7 @@ export interface TabState {
   issueTypes: Record<string, IssueType[]>;
   savedViews: SavedView[];
   prefs: Prefs;
+  prompts: PromptOverrides;
   /** The lists and details being fetched now, by their keys. */
   loading: string[];
 }
@@ -216,6 +218,7 @@ export type TabAction =
   | { kind: "add-source"; name: string; project: string; filter: string }
   | { kind: "remove-source"; name: string }
   | { kind: "undo"; undo: Undo }
+  | { kind: "set-prompt"; scope: PromptScope; prompt: PromptKind; text: string | null }
   | WriteAction;
 
 export interface WriteReply {

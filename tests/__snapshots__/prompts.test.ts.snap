@@ -1,0 +1,42 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the built-in messages read as they always have 1`] = `
+{
+  "planAllDone": 
+"Look at the Jira epic KITE-9: Offline mode. https://kite.example.net/browse/KITE-9
+
+Nothing under it is open.
+
+Suggest what to do next, in what order, and what's missing. Read it and its comments with \`acli jira workitem view KITE-9 --fields '*navigable,comment' --json\`. Jira tells the issue's watchers of every change, so ask me before you comment on it, move it to another status or change it in any other way."
+,
+  "planWithOpen": 
+"Look at the Jira epic KITE-9: Offline mode. https://kite.example.net/browse/KITE-9
+
+Its description:
+Notes open, change and sync later when the phone has no connection.
+
+What's under it and not done:
+- KITE-412 (Notes vanish after renaming a folder): In Progress, Dana Reyes
+- KITE-398 (Queue edits made offline and replay them): To Do
+
+Suggest what to do next, in what order, and what's missing. Read it and its comments with \`acli jira workitem view KITE-9 --fields '*navigable,comment' --json\`. Jira tells the issue's watchers of every change, so ask me before you comment on it, move it to another status or change it in any other way."
+,
+  "workBare": 
+"Work on the Jira issue KITE-412: Notes vanish after renaming a folder (Bug, In Progress, priority High). https://kite.example.net/browse/KITE-412
+
+Read it and its comments with \`acli jira workitem view KITE-412 --fields '*navigable,comment' --json\`. Name the branch and the commits after KITE-412. Jira tells the issue's watchers of every change, so ask me before you comment on it, move it to another status or change it in any other way."
+,
+  "workDescribed": 
+"Work on the Jira issue KITE-412: Notes vanish after renaming a folder (Bug, In Progress, priority High, under KITE-9 (Offline mode)). https://kite.example.net/browse/KITE-412
+
+Its description:
+Rename a folder while offline, then reconnect: its notes are gone from the list.
+1. Turn on airplane mode
+2. Rename a folder
+3. Turn it off
+Seen on 1.8.2.
+
+Read it and its comments with \`acli jira workitem view KITE-412 --fields '*navigable,comment' --json\`. Name the branch and the commits after KITE-412. Jira tells the issue's watchers of every change, so ask me before you comment on it, move it to another status or change it in any other way."
+,
+}
+`;

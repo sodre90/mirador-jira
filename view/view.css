@@ -1874,3 +1874,31 @@ ul.sources li + li {
 .field-row {
   align-items: flex-end;
 }
+
+.prompt-picks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.prompt-text {
+  display: block;
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  font-family: var(--mirador-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.9em;
+  line-height: 1.45;
+}
+
+.placeholders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.placeholders .chip {
+  font-family: var(--mirador-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.85em;
+}

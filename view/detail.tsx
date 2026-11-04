@@ -23,7 +23,7 @@ function WorkOnThis({ issue, detail }: { issue: Issue; detail: DetailData | null
   const site = tab.connection.site;
   const isEpic = issue.type.toLowerCase() === "epic";
   const children = tab.state.lists[childrenJql(issue.key)]?.issues ?? [];
-  const text = () => (isEpic ? planText(issue, detail, children, site) : workText(issue, detail, site));
+  const text = () => (isEpic ? planText(issue, detail, children, site, tab.state.prompts) : workText(issue, detail, site, tab.state.prompts));
   const start = () => handOff(() => window.mirador.startConversation(text()), `Started a conversation on ${keyWithSummary(issue)}`);
   return (
     <span className="split-button">
@@ -44,6 +44,10 @@ function WorkOnThis({ issue, detail }: { issue: Issue; detail: DetailData | null
             <button type="button" onClick={() => (close(), handOff(() => window.mirador.addToComposer(mentionText(issue, site)), "Added to the composer"))}>
               <b>Mention in the composer</b>
               <small>Adds its key, summary and link to what you're writing</small>
+            </button>
+            <button type="button" onClick={() => (close(), tab.showSheet({ kind: "edit-message", messages: [{ label: isEpic ? "Plan it" : "Work on it", text: text(), sends: ["new", "here"] }] }))}>
+              <b>Edit the message first…</b>
+              <small>Change what the agent gets, this once</small>
             </button>
           </div>
         )}

@@ -3,6 +3,7 @@ import type { WorkspaceTabContext } from "../mirador/api.ts";
 import { childrenJql, viewJql } from "../jira/jql.ts";
 import type { TabState, WriteReply } from "../jira/model.ts";
 import type { Runner } from "../jira/run.ts";
+import { PROMPTS } from "../jira/prompts.ts";
 import { JiraTab, MIN_READ_GAP_MS, TIMER_READ_GAP_MS } from "../jira/tab.ts";
 import { ProgramMissing } from "../jira/run.ts";
 import { FakeJira } from "./fake-acli.ts";
@@ -17,11 +18,12 @@ function setUp({ commits = COMMITS, branches = BRANCHES } = {}) {
     return { code: 0, stdout: args[0] === "log" ? commits : branches, stderr: "" };
   };
   const stored = new Map<string, unknown>();
+  const shared = new Map<string, unknown>();
   let clock = 1_000_000;
   const context: WorkspaceTabContext = {
     workspace: { id: "w1", name: "kite", folder: "/tmp/kite" },
     storage: { get: (key) => stored.get(key), set: (key, value) => void (value === undefined ? stored.delete(key) : stored.set(key, value)) },
-    sharedStorage: { get: () => undefined, set: () => {} },
+    sharedStorage: { get: (key) => shared.get(key), set: (key, value) => void (value === undefined ? shared.delete(key) : shared.set(key, value)) },
     changed: () => {},
   };
   const tab = new JiraTab(runner, () => clock);
@@ -290,3 +292,18 @@ describe("sources", () => {
   });
 });
 
+
+describe("the messages the tab sends", () => {
+  test("keep only the user's own text, for this workspace or every workspace, and put back takes it out", async () => {
+    const { state, act } = setUp();
+    await act({ kind: "set-prompt", scope: "every", prompt: "work", text: "Fix {key} with tests first." });
+    await act({ kind: "set-prompt", scope: "workspace", prompt: "work", text: "Fix {key} the Kite way." });
+    expect((await state()).prompts).toEqual({ workspace: { work: "Fix {key} the Kite way." }, every: { work: "Fix {key} with tests first." } });
+    await act({ kind: "set-prompt", scope: "workspace", prompt: "work", text: "Fix {key} with tests first." });
+    expect((await state()).prompts.workspace).toEqual({});
+    await act({ kind: "set-prompt", scope: "every", prompt: "work", text: null });
+    await act({ kind: "set-prompt", scope: "every", prompt: "plan", text: PROMPTS.plan.builtIn });
+    expect((await state()).prompts).toEqual({ workspace: {}, every: {} });
+    await expect(act({ kind: "set-prompt", scope: "every", prompt: "nonsense", text: "x" })).rejects.toThrow("no message");
+  });
+});

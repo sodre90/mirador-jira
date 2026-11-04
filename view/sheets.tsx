@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { shellText, writePlan } from "../jira/acli.ts";
 import { componentFilter, projectOf, sourceJql } from "../jira/jql.ts";
 import type { Detail, Issue, Person, ProjectLookup, TabAction, WriteAction, WriteReply } from "../jira/model.ts";
-import { failureText, keyWithSummary, send, useTab, type Sheet } from "./bridge.ts";
+import { PROMPT_KINDS, PROMPTS, inheritedTemplate, templateSource, type PromptKind, type PromptScope } from "../jira/prompts.ts";
+import { failureText, keyWithSummary, send, useTab, type Message, type Sheet } from "./bridge.ts";
 import { Avatar, Spinner } from "./icons.tsx";
 import { MarkdownText } from "./markdown.tsx";
 
@@ -437,6 +438,149 @@ function DisconnectSheet() {
   );
 }
 
+const SOURCE_WORDS = { workspace: "this workspace's own text", every: "the text for every workspace", "built-in": "the built-in text" } as const;
+
+/** The messages the tab sends the agent, as this workspace or every workspace has them, with what each placeholder stands for. */
+function PromptsSheet() {
+  const tab = useTab();
+  const overrides = tab.state.prompts;
+  const [kind, setKind] = useState<PromptKind>("work");
+  const [scope, setScope] = useState<PromptScope>("workspace");
+  const own = overrides[scope][kind];
+  const startText = own ?? inheritedTemplate(kind, overrides, scope);
+  const [text, setText] = useState(startText);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => setText(startText), [startText]);
+  const save = (next: string | null, done: string) => {
+    setBusy(true);
+    setProblem(null);
+    send({ kind: "set-prompt", scope, prompt: kind, text: next }).then(
+      () => (setBusy(false), tab.toast(done)),
+      (error) => (setBusy(false), setProblem(failureText(error))),
+    );
+  };
+  const insert = (name: string) => {
+    const at = box.current?.selectionStart ?? text.length;
+    const placed = `{${name}}`;
+    setText(text.slice(0, at) + placed + text.slice(box.current?.selectionEnd ?? at));
+    requestAnimationFrame(() => box.current?.setSelectionRange(at + placed.length, at + placed.length));
+  };
+  const inUse = templateSource(kind, overrides);
+  const shadowed = scope === "every" && overrides.workspace[kind] !== undefined;
+  const fallsBackToEvery = scope === "workspace" && overrides.every[kind] !== undefined;
+  return (
+    <SheetFrame
+      title="Prompts for the agent"
+      command={null}
+      footer={
+        <>
+          {problem && <p className="sheet-problem">⚠ {problem}</p>}
+          {own !== undefined && (
+            <button type="button" className="button" disabled={busy} onClick={() => save(null, fallsBackToEvery ? "This workspace uses every workspace's text again" : "Put back the built-in text")}>
+              {fallsBackToEvery ? "Use every workspace's text" : "Put back the built-in"}
+            </button>
+          )}
+          <span className="spacer" />
+          <button type="button" className="button" onClick={() => tab.showSheet(null)}>
+            Close
+          </button>
+          <button type="button" className="button primary" disabled={busy || !text.trim() || text === startText} onClick={() => save(text, "Saved the prompt")}>
+            {busy ? <Spinner /> : null} Save
+          </button>
+        </>
+      }
+    >
+      <div className="prompt-picks">
+        <select aria-label="Prompt" value={kind} onChange={(event) => setKind(event.target.value as PromptKind)}>
+          {PROMPT_KINDS.map((each) => (
+            <option key={each} value={each}>
+              {PROMPTS[each].name}
+            </option>
+          ))}
+        </select>
+        <div className="segmented" role="group" aria-label="For">
+          {(["workspace", "every"] as const).map((each) => (
+            <button key={each} type="button" aria-pressed={scope === each} className={scope === each ? "on" : ""} onClick={() => setScope(each)}>
+              {each === "workspace" ? "This workspace" : "Every workspace"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="sheet-about">
+        {PROMPTS[kind].sentBy} This workspace uses {SOURCE_WORDS[inUse]}.{shadowed && " This workspace has its own text, so a change here reaches it only once you take that out."}
+      </p>
+      <textarea ref={box} className="prompt-text" aria-label="Prompt text" value={text} onChange={(event) => setText(event.target.value)} rows={10} spellCheck={false} />
+      <div className="placeholders" aria-label="Placeholders">
+        {PROMPTS[kind].placeholders.map(({ name, means }) => (
+          <button key={name} type="button" className="chip" data-hint={means} onClick={() => insert(name)}>
+            {`{${name}}`}
+          </button>
+        ))}
+      </div>
+      <p className="muted small">A paragraph whose placeholders all come out empty is left out.</p>
+    </SheetFrame>
+  );
+}
+
+/** A message filled in, to change once before it goes; the saved prompt stays as it is. */
+function EditMessageSheet({ messages }: { messages: Message[] }) {
+  const tab = useTab();
+  const [chosen, setChosen] = useState(0);
+  const message = messages[chosen]!;
+  const [text, setText] = useState(message.text);
+  useEffect(() => setText(message.text), [message]);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const go = (where: "new" | "here") => {
+    setBusy(true);
+    setProblem(null);
+    const sending = where === "new" ? window.mirador.startConversation(text) : window.mirador.prompt(text);
+    sending.then(
+      () => (tab.showSheet(null), tab.toast(where === "new" ? "Started a conversation with your message" : "Sent to this conversation's agent")),
+      (error) => (setBusy(false), setProblem(failureText(error))),
+    );
+  };
+  return (
+    <SheetFrame
+      title="Edit the message first"
+      command={null}
+      footer={
+        <>
+          {problem && <p className="sheet-problem">⚠ {problem}</p>}
+          <span className="spacer" />
+          <button type="button" className="button" onClick={() => tab.showSheet(null)}>
+            Cancel
+          </button>
+          {message.sends.includes("here") && (
+            <button type="button" className={`button ${message.sends.includes("new") ? "" : "primary"}`} disabled={busy || !text.trim()} onClick={() => go("here")}>
+              Send to this conversation
+            </button>
+          )}
+          {message.sends.includes("new") && (
+            <button type="button" className="button primary" disabled={busy || !text.trim()} onClick={() => go("new")}>
+              {busy ? <Spinner /> : null} Start a conversation
+            </button>
+          )}
+        </>
+      }
+    >
+      {messages.length > 1 && (
+        <div className="segmented" role="group" aria-label="Which message">
+          {messages.map(({ label }, index) => (
+            <button key={label} type="button" aria-pressed={chosen === index} className={chosen === index ? "on" : ""} onClick={() => setChosen(index)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      <textarea className="prompt-text" aria-label="Message" value={text} onChange={(event) => setText(event.target.value)} rows={12} autoFocus />
+      <p className="muted small">Only this message changes. Prompts for the agent, in the ⋯ menu, change what every one starts from.</p>
+    </SheetFrame>
+  );
+}
+
 export function SheetView({ sheet }: { sheet: Sheet }) {
   switch (sheet.kind) {
     case "summary":
@@ -451,6 +595,10 @@ export function SheetView({ sheet }: { sheet: Sheet }) {
       return <SaveViewSheet jql={sheet.jql} />;
     case "sources":
       return <SourcesSheet />;
+    case "prompts":
+      return <PromptsSheet />;
+    case "edit-message":
+      return <EditMessageSheet messages={sheet.messages} />;
     case "disconnect":
       return <DisconnectSheet />;
   }

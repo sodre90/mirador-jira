@@ -18,7 +18,16 @@ export type Sheet =
   | { kind: "create"; parent: Issue | null }
   | { kind: "save-view"; jql: string }
   | { kind: "sources" }
-  | { kind: "disconnect" };
+  | { kind: "disconnect" }
+  | { kind: "prompts" }
+  | { kind: "edit-message"; messages: Message[] };
+
+/** A message to the agent, filled in, and where it can go. */
+export interface Message {
+  label: string;
+  text: string;
+  sends: ("new" | "here")[];
+}
 
 /** What every part of the tab reaches: the host's state for the workspace, and the user's place in it. */
 export interface Tab {

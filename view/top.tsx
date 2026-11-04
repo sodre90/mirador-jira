@@ -85,6 +85,9 @@ export function TopBar() {
             <button type="button" onClick={() => (close(), tab.showSheet({ kind: "sources" }))}>
               Sources…
             </button>
+            <button type="button" onClick={() => (close(), tab.showSheet({ kind: "prompts" }))}>
+              Prompts for the agent…
+            </button>
             <button type="button" onClick={() => (close(), window.mirador.openLink(`${connection.site}/browse/${connection.project}`))}>
               Open {connection.project} in Jira
             </button>
