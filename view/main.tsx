@@ -6,6 +6,7 @@ import { failureText, keyWithSummary, send, TabContext, type Sheet, type Tab } f
 import { SprintView } from "./board.tsx";
 import { Connect, Problem } from "./connect.tsx";
 import { Detail } from "./detail.tsx";
+import { Divider } from "./divider.tsx";
 import { Spinner } from "./icons.tsx";
 import { ListView } from "./list.tsx";
 import { SheetView } from "./sheets.tsx";
@@ -145,6 +146,7 @@ function App() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [draggedWidth, setDraggedWidth] = useState<number | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const connection = state?.connection ?? null;
   const prefs = prefsHere ?? state?.prefs ?? DEFAULT_PREFS;
@@ -226,8 +228,18 @@ function App() {
           <TopBar />
           <main className={`body view-${view === "sprint" ? "sprint" : "list"} ${selectedKey ? "has-detail" : ""} ${besideList ? "beside" : "over"}`}>
             <div className="content">{view === "sprint" ? <SprintView /> : <ListView />}</div>
+            {selectedKey && besideList && (
+              <Divider
+                onResize={setDraggedWidth}
+                onDone={(width) => {
+                  setDraggedWidth(null);
+                  setPrefsHere({ ...prefs, detailWidth: width });
+                  void send({ kind: "prefs", prefs: { ...prefs, detailWidth: width } }).catch(() => {});
+                }}
+              />
+            )}
             {selectedKey && (
-              <aside className="detail-pane">
+              <aside className="detail-pane" style={besideList && (draggedWidth ?? prefs.detailWidth) ? { width: draggedWidth ?? prefs.detailWidth! } : undefined}>
                 <Detail key={selectedKey} issueKey={selectedKey} />
               </aside>
             )}

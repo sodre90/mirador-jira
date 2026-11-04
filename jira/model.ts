@@ -152,11 +152,13 @@ export interface Prefs {
   layout: "board" | "list";
   /** The order each list view was last put in, when it isn't the view's own. */
   sorts: Partial<Record<ViewId, Sort>>;
+  /** The issue's panel's width beside the list, once the user dragged it; null for the panel's own. */
+  detailWidth: number | null;
 }
 
 export type Sort = "updated" | "priority" | "created";
 
-export const DEFAULT_PREFS: Prefs = { view: "mine", search: "", sprint: null, layout: "board", sorts: {} };
+export const DEFAULT_PREFS: Prefs = { view: "mine", search: "", sprint: null, layout: "board", sorts: {}, detailWidth: null };
 
 /** Everything the tab shows for one workspace. */
 export interface TabState {

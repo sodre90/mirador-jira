@@ -50,7 +50,7 @@ const NUMBERED_LEVELS: PriorityLevel[] = ["highest", "highest", "high", "medium"
 const PRIORITY_WORDS: [PriorityLevel, RegExp][] = [
   ["lowest", /lowest|trivial/],
   ["highest", /highest|blocker|critical|immediate|urgent|emergency/],
-  ["high", /high|major|must/],
+  ["high", /high|major|must|important/],
   ["low", /low|minor/],
   ["medium", /medium|normal|moderate/],
 ];

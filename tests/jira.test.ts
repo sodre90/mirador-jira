@@ -60,8 +60,8 @@ describe("JQL", () => {
   });
 
   test("a priority's level comes from the words a site names it with", () => {
-    const levels = ["Highest", "Blocker", "Urgent", "P1 - Outage", "Must have", "P2 - Degraded", "Medium", "P3 - Minor", "Minor", "Trivial", "Whenever"].map(priorityLevel);
-    expect(levels).toEqual(["highest", "highest", "highest", "highest", "high", "high", "medium", "medium", "low", "lowest", null]);
+    const levels = ["Highest", "Blocker", "Urgent", "P1 - Outage", "Must have", "Important", "P2 - Degraded", "Medium", "P3 - Minor", "Minor", "Trivial", "Whenever"].map(priorityLevel);
+    expect(levels).toEqual(["highest", "highest", "highest", "highest", "high", "high", "high", "medium", "medium", "low", "lowest", null]);
   });
 
   test("the search box takes JQL as written, an issue by its key, or words", () => {

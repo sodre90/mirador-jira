@@ -216,6 +216,33 @@ test("a workspace connects to its Jira project, and its issues are found, read, 
     await expect(view(page, "Mine")).toContainText("4");
   });
 
+  await test.step("the line between the list and the issue's panel drags, moves with the arrow keys, and keeps its place", async () => {
+    await view(page, "Mine").click();
+    await row(page, "KITE-412").click();
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 1800, height: viewport.height });
+    const divider = tab(page).getByRole("separator", { name: "Resize the issue's panel" });
+    const pane = tab(page).locator(".detail-pane");
+    const width = async () => (await pane.boundingBox())!.width;
+    await expect(divider).toBeVisible();
+    const before = await width();
+    const line = (await divider.boundingBox())!;
+    await page.mouse.move(line.x + line.width / 2, line.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(line.x + 80, line.y + 200, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(width).toBeLessThan(before - 60);
+    const dragged = await width();
+    await divider.focus();
+    await divider.press("ArrowLeft");
+    await expect.poll(width).toBeCloseTo(dragged + 24, 0);
+    await detail(page).getByRole("button", { name: "Close the issue's panel" }).click();
+    await row(page, "KITE-412").click();
+    await expect.poll(width).toBeCloseTo(dragged + 24, 0);
+    await detail(page).getByRole("button", { name: "Close the issue's panel" }).click();
+    await page.setViewportSize(viewport);
+  });
+
   await test.step("the Sprint view shows the active sprint as a board, and dropping a card moves it", async () => {
     await view(page, "Sprint").click();
     await expect(column(page, "Waiting for support")).toHaveCount(0);

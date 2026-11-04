@@ -469,8 +469,27 @@ h2 {
 }
 
 .body.beside .detail-pane {
+  flex: none;
   width: min(52%, 640px);
-  border-left: 1px solid var(--line);
+  max-width: calc(100% - 280px);
+}
+
+.divider {
+  flex: none;
+  width: 7px;
+  margin: 0 -3px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+  background: linear-gradient(var(--line), var(--line)) center / 1px 100% no-repeat;
+}
+
+.divider:hover,
+.divider:active,
+.divider:focus-visible {
+  outline: none;
+  background-size: 3px 100%;
+  background-image: linear-gradient(var(--accent), var(--accent));
 }
 
 .body.over .detail-pane {
@@ -483,7 +502,25 @@ h2 {
   z-index: 5;
 }
 
-.narrow .body.over .detail-pane {
+.narrow .divider {
+  flex: none;
+  width: 7px;
+  margin: 0 -3px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+  background: linear-gradient(var(--line), var(--line)) center / 1px 100% no-repeat;
+}
+
+.divider:hover,
+.divider:active,
+.divider:focus-visible {
+  outline: none;
+  background-size: 3px 100%;
+  background-image: linear-gradient(var(--accent), var(--accent));
+}
+
+.body.over .detail-pane {
   width: 100%;
   border-left: 0;
 }
